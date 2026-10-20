@@ -62,6 +62,35 @@
       });
     })();
   </script>
+  <script>
+    // POS / handheld detection (runs before first paint so there is no layout flash).
+    //
+    // Some POS terminals (e.g. iMin) report a CSS width >= 768px, which makes the
+    // restaurant panel fall into its tablet/desktop web layout: the mobile footer
+    // (md:hidden) disappears and the fixed order popup is shifted for a sidebar
+    // that a handheld operator does not want. This flag lets the restaurant CSS
+    // keep the full phone layout on such devices.
+    //
+    // Phones are < 768px, so they never match this and are completely unaffected;
+    // laptops/desktops have a fine pointer + hover, so they are excluded too. The
+    // flag only turns on for a touch-only handheld that happens to be >= 768px, or
+    // for a device whose UA identifies it as an iMin terminal.
+    (function () {
+      try {
+        var ua = String(navigator.userAgent || '').toLowerCase();
+        var isImin = ua.indexOf('imin') > -1;
+        var coarseNoHover =
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(pointer: coarse)').matches &&
+          window.matchMedia('(hover: none)').matches;
+        var wideHandheld =
+          coarseNoHover && window.matchMedia('(min-width: 768px)').matches;
+        if (isImin || wideHandheld) {
+          document.documentElement.setAttribute('data-pos-device', 'true');
+        }
+      } catch (e) { /* detection is best-effort; default (no flag) keeps web layout */ }
+    })();
+  </script>
   <link rel="icon" type="image/jpeg" href="/EatiefyUserAppLogo.jpeg?v=3" />
   <!-- iOS only delivers web push to a Home Screen web app, which needs a manifest. -->
   <link rel="manifest" href="/manifest.webmanifest" />

@@ -3528,35 +3528,24 @@ function RestaurantDetailsContent() {
         </div>
       )}
 
-      {/* Floating Menu Button - Rendered via Portal for perfect fixed positioning and instant drag response */}
+      {/* Floating Menu Button - Rendered via Portal, pinned bottom-centre.
+          It used to be draggable (framer-motion `drag`), which let it wander
+          anywhere on screen and never settle in one place. It now stays fixed
+          just above the cart bar, centred, so it is always where the user
+          expects it. */}
       {typeof window !== "undefined" && !showFilterSheet && !showMenuSheet && !showMenuOptionsSheet && restaurant && filteredSections.length > 0 &&
         createPortal(
-          <motion.div
-            drag
-            dragMomentum={false}
-            dragElastic={0}
-            dragConstraints={{
-              left: 0,
-              right: windowSize.width - menuButtonWidth,
-              top: -(windowSize.height - menuButtonHeight - (itemCount > 0 ? 150 : 80)),
-              bottom: itemCount > 0 ? 150 : 80
-            }}
-            initial={{
-              x: (windowSize.width - menuButtonWidth) / 2,
-              y: 0
-            }}
-            whileDrag={{ scale: 1.02, zIndex: 9998 }}
-            whileHover={{ scale: 1.05 }}
+          <div
             style={{
               position: 'fixed',
-              left: 0,
+              left: '50%',
+              transform: 'translateX(-50%)',
               bottom: itemCount > 0 ? 150 : 80,
               backfaceVisibility: 'hidden',
               WebkitFontSmoothing: 'antialiased',
-              zIndex: 9998,
-              touchAction: 'none'
+              zIndex: 9998
             }}
-            className="pointer-events-auto cursor-grab active:cursor-grabbing"
+            className="pointer-events-auto"
           >
             <Button
               ref={menuButtonRef}
@@ -3567,7 +3556,7 @@ function RestaurantDetailsContent() {
               <Utensils className="h-5 w-5 text-white group-hover:scale-110 transition-transform" />
               <span className="text-[17px] font-medium antialiased tracking-wide">Menu</span>
             </Button>
-          </motion.div>,
+          </div>,
           document.body
         )
       }

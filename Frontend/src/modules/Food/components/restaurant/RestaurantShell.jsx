@@ -25,6 +25,14 @@ import { getOrdersTabs, findActiveTab } from "./BottomNavOrders"
 
 const WIDE_QUERY = "(min-width: 768px)"
 
+// Some POS terminals (e.g. iMin) report a >= 768px width but need the phone
+// layout — the bottom tab bar, not the sidebar. index.html flags them with
+// data-pos-device; there the sidebar must never mount. Phones are < 768px, so
+// they are unaffected either way.
+const isPosDevice = () =>
+  typeof document !== "undefined" &&
+  document.documentElement.getAttribute("data-pos-device") === "true"
+
 const subscribeWide = (onChange) => {
   if (typeof window === "undefined" || !window.matchMedia) return () => {}
   const mql = window.matchMedia(WIDE_QUERY)
@@ -32,7 +40,10 @@ const subscribeWide = (onChange) => {
   return () => mql.removeEventListener?.("change", onChange)
 }
 const getWide = () =>
-  typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(WIDE_QUERY).matches
+  typeof window !== "undefined" &&
+  !!window.matchMedia &&
+  window.matchMedia(WIDE_QUERY).matches &&
+  !isPosDevice()
 
 const useIsWideScreen = () => useSyncExternalStore(subscribeWide, getWide, () => false)
 
