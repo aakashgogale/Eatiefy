@@ -43,7 +43,7 @@ import * as dispatchService from './order-dispatch.service.js';
 import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
 import { detectZoneIdForPoint } from '../../utils/zoneGeo.js';
-import { isTakeawayEnabled, isDiningEnabled } from '../../admin/services/moduleAccess.service.js';
+import { isTakeawayEnabled, isDiningEnabled, isTakeawayPayAtPickupEnabled } from '../../admin/services/moduleAccess.service.js';
 import {
   enqueueOrderEvent,
   assertRestaurantDeliversToZone,
@@ -197,6 +197,64 @@ export async function initiateOnlinePayment(userId, dto) {
   };
 }
 
+// ----- Initiate the pay-at-pickup payment for an EXISTING takeaway order -----
+// Called when the customer reaches the restaurant and taps "Pay Now". Creates a
+// Razorpay order for the amount already owed (server-side, never client), stores
+// its id on the order, and returns the gateway params. The actual confirmation
+// goes through verifyPayment (reused), which flips the order to paid and only
+// THEN notifies the restaurant.
+export async function initiatePickupPayment(userId, orderId) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+
+  const order = await FoodOrder.findOne({
+    ...identity,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!order) throw new NotFoundError("Order not found");
+
+  if (order.orderType !== "takeaway" || order.payment?.payAtPickup !== true) {
+    throw new ValidationError("This order is not a Pay-at-Pickup order");
+  }
+  if (order.payment?.status === "paid") {
+    throw new ValidationError("This order is already paid");
+  }
+  if (order.payment?.status !== "awaiting_pickup_payment") {
+    throw new ValidationError("This order cannot be paid now");
+  }
+  if (order.orderStatus !== "created") {
+    throw new ValidationError("This order cannot be paid now");
+  }
+
+  const onlineConfig = await FoodSystemConfig.findOne({ key: "online_payment_enabled" }).select("value").lean();
+  if (onlineConfig && onlineConfig.value === false) {
+    throw new ValidationError("Online payment is currently disabled");
+  }
+  if (!isRazorpayConfigured()) {
+    throw new ValidationError("Payment gateway is not configured");
+  }
+
+  // Amount comes from the stored order, never from the client.
+  const amountPaise = Math.round(Number(order.payment?.amountDue ?? order.pricing?.total ?? 0) * 100);
+  if (amountPaise < 100) throw new ValidationError("Amount too low for online payment");
+
+  const tempReceiptId = "pickup_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+  const rzOrder = await createRazorpayOrder(amountPaise, "INR", tempReceiptId);
+
+  // Persist the gateway order id so verifyPayment can bind the payment to it.
+  if (!order.payment.razorpay) order.payment.razorpay = {};
+  order.payment.razorpay.orderId = rzOrder.id;
+  order.markModified("payment");
+  await order.save();
+
+  return {
+    key: getRazorpayKeyId(),
+    orderId: rzOrder.id,
+    amount: rzOrder.amount,
+    currency: rzOrder.currency || "INR",
+  };
+}
+
 /**
  * The order a Razorpay payment has already paid for, if any. One payment must
  * pay for exactly one order: without this a single successful checkout
@@ -268,9 +326,21 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
   }
 
   const orderType = dto.orderType || "delivery";
+  // "Pay at Pickup (online)": a takeaway order placed now and paid online at the
+  // counter. It is online-only (never cash) and must be allowed by BOTH the admin
+  // master toggle and the restaurant's own opt-in. Delivery/dining never set this.
+  const isPayAtPickup = orderType === "takeaway" && dto.payAtPickup === true;
   if (orderType === "takeaway") {
     if (restaurant.takeawaySettings?.isEnabled === false) {
       throw new ValidationError("Takeaway is not available for this restaurant");
+    }
+    if (isPayAtPickup) {
+      if (!(await isTakeawayPayAtPickupEnabled())) {
+        throw new ValidationError("Pay at Pickup is currently unavailable");
+      }
+      if (restaurant.takeawaySettings?.payAtPickupEnabled !== true) {
+        throw new ValidationError("Pay at Pickup is not available for this restaurant");
+      }
     }
   }
 
@@ -305,13 +375,25 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
       : undefined,
   };
 
-  const paymentMethod =
-    dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
+  // Pay-at-Pickup is always an online (razorpay) order — it is just paid later,
+  // so force the method and ignore any client-sent cash/wallet for this mode.
+  const paymentMethod = isPayAtPickup
+    ? "razorpay"
+    : dto.paymentMethod === "card"
+      ? "razorpay"
+      : dto.paymentMethod;
   const isCash = paymentMethod === "cash";
   const isWallet = paymentMethod === "wallet";
 
   // Global Customization Toggles Enforcement
   if (isCash) {
+    // Takeaway is online-payment only: cash / Pay-at-Pickup is never accepted,
+    // regardless of what the client sends. Enforced here (not just in the UI)
+    // so a direct API call cannot create an unpaid takeaway order.
+    if (orderType === "takeaway") {
+      throw new ValidationError("Takeaway orders must be paid online");
+    }
+
     // 1. General COD Toggle (Master switch for non-takeaway)
     if (orderType !== "takeaway") {
       const globalCodConfig = await FoodSystemConfig.findOne({ key: "cod_enabled" }).select("value").lean();
@@ -372,7 +454,7 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
   dto.restaurantName = priced.restaurantName || dto.restaurantName || restaurant.restaurantName || "";
 
 
-  if (paymentMethod === "razorpay") {
+  if (paymentMethod === "razorpay" && !isPayAtPickup) {
     const onlineConfig = await FoodSystemConfig.findOne({ key: "online_payment_enabled" }).select("value").lean();
     if (onlineConfig && onlineConfig.value === false) {
       throw new ValidationError("Online payment is currently disabled");
@@ -435,11 +517,20 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
     normalizedPricing.total = computedTotal;
   }
 
-  const isPaidOnline = paymentMethod === "razorpay";
+  // Pay-at-Pickup is razorpay but NOT paid yet, so it must not count as paid here.
+  const isPaidOnline = paymentMethod === "razorpay" && !isPayAtPickup;
 
   const payment = {
     method: paymentMethod,
-    status: isCash ? "cod_pending" : (isWallet || isPaidOnline) ? "paid" : "created",
+    status: isPayAtPickup
+      ? "awaiting_pickup_payment"
+      : isCash
+        ? "cod_pending"
+        : (isWallet || isPaidOnline)
+          ? "paid"
+          : "created",
+    payAtPickup: isPayAtPickup,
+    // Pay-at-Pickup still owes the full total until the customer pays at the counter.
     amountDue: (isWallet || isPaidOnline) ? 0 : (normalizedPricing.total ?? 0),
     razorpay: isPaidOnline ? {
       orderId: String(dto.razorpayOrderId || "").trim(),
@@ -725,12 +816,16 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
     await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
       // "Placed", not "Confirmed": the restaurant has not accepted it yet, and
       // may still reject it - "Confirmed" followed by "Cancelled" read as a contradiction.
-      title: isAwaitingOnlinePayment
-        ? "Complete Payment to Confirm Order"
-        : "Order Placed!",
-      body: isAwaitingOnlinePayment
-        ? `Order #${order.order_id || order._id} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
-        : `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed and is waiting for the restaurant to accept it.`,
+      title: isPayAtPickup
+        ? "Order Placed — Pay at Pickup"
+        : isAwaitingOnlinePayment
+          ? "Complete Payment to Confirm Order"
+          : "Order Placed!",
+      body: isPayAtPickup
+        ? `Order #${order.order_id || order._id} is placed. Pay online at ${restaurant.restaurantName || "the restaurant"} when you arrive to confirm it and start preparation.`
+        : isAwaitingOnlinePayment
+          ? `Order #${order.order_id || order._id} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
+          : `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed and is waiting for the restaurant to accept it.`,
       idempotencyKey: `${eventType}_${order._id}`,
       eventId: `${eventType}_${order._id}`,
       tag: `${eventType}_${order._id}`,
@@ -920,10 +1015,11 @@ export async function listOrdersUser(userId, query) {
   const { page, limit, skip } = buildPaginationOptions(query);
   const filter = {
     userId: new mongoose.Types.ObjectId(userId),
-    // Exclude active online orders that have incomplete payments
+    // Exclude active online orders that have incomplete payments — but KEEP
+    // Pay-at-Pickup orders so the customer can see them and pay at the counter.
     $or: [
       { "payment.method": { $ne: "razorpay" } },
-      { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } }
+      { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded", "awaiting_pickup_payment"] } }
     ]
   };
   const [docs, total] = await Promise.all([
@@ -989,8 +1085,12 @@ export async function getOrderById(
   // Exclude active online orders that have incomplete payments from user view
   if (userId) {
     const isOnline = String(order.payment?.method || "").toLowerCase() === "razorpay";
-    const isPaid = ["paid", "authorized", "captured", "settled", "refunded"].includes(String(order.payment?.status || "").toLowerCase());
-    if (isOnline && !isPaid) {
+    const paymentStatus = String(order.payment?.status || "").toLowerCase();
+    const isPaid = ["paid", "authorized", "captured", "settled", "refunded"].includes(paymentStatus);
+    // Pay-at-Pickup orders are intentionally online-but-unpaid; the owner must be
+    // able to open them to pay at the counter, so they are not hidden.
+    const isPayAtPickupAwaiting = paymentStatus === "awaiting_pickup_payment";
+    if (isOnline && !isPaid && !isPayAtPickupAwaiting) {
       throw new NotFoundError("Order not found");
     }
   }

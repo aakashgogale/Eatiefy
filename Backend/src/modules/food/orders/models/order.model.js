@@ -105,10 +105,19 @@ const paymentSchema = new mongoose.Schema(
                 'paid',
                 'failed',
                 'refunded',
-                'pending_qr'
+                'pending_qr',
+                // Takeaway "Pay at Pickup (online)": order is placed but not yet
+                // paid. It is intentionally NOT in the paid set, so the restaurant
+                // is never notified/alarmed and never starts preparing until the
+                // customer pays online at the counter.
+                'awaiting_pickup_payment'
             ],
             default: 'cod_pending'
         },
+        // True for takeaway orders placed with "Pay at Pickup (online)". Kept even
+        // after payment (status flips to 'paid') so UIs/queries can recognise the
+        // mode in history.
+        payAtPickup: { type: Boolean, default: false },
         amountDue: { type: Number, min: 0 },
         razorpay: {
             orderId: { type: String },

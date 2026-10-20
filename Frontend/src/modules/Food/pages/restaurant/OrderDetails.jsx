@@ -218,6 +218,10 @@ export default function OrderDetails() {
           let paymentStatus = "PENDING"
           if (["completed", "paid", "captured", "success", "succeeded"].includes(rawPaymentStatus)) {
             paymentStatus = "PAID"
+          } else if (rawPaymentStatus === "awaiting_pickup_payment") {
+            // Takeaway "Pay at Pickup": placed but not yet paid. These normally
+            // aren't shown to the restaurant until paid, but label it clearly if seen.
+            paymentStatus = "AWAITING PAYMENT"
           } else if (["failed", "declined"].includes(rawPaymentStatus)) {
             paymentStatus = "FAILED"
           } else if (["refunded", "refund"].includes(rawPaymentStatus)) {

@@ -77,7 +77,7 @@ const resolveCustomerId = (order) => {
 
 const getPaymentStatusColor = (paymentStatus) => {
   if (paymentStatus === "Paid" || paymentStatus === "Collected") return "text-emerald-600"
-  if (paymentStatus === "COD Pending" || paymentStatus === "Not Collected") return "text-amber-600"
+  if (paymentStatus === "COD Pending" || paymentStatus === "Not Collected" || paymentStatus === "Awaiting Pickup Payment") return "text-amber-600"
   if (paymentStatus === "Unpaid" || paymentStatus === "Failed") return "text-red-600"
   return "text-slate-600"
 }
@@ -112,6 +112,7 @@ const resolveDisplayPaymentStatus = (order) => {
     return "Paid"
   }
   if (raw === "cod_pending") return "COD Pending"
+  if (raw === "awaiting_pickup_payment") return "Awaiting Pickup Payment"
 
   // Legacy UI labels → current friendly labels
   if (order.paymentStatus === "Collected") return "Paid"

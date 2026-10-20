@@ -710,6 +710,9 @@ Order again from this restaurant in the ${companyName} app.`
               (order.payment?.status === 'failed')
 
             const isDelivered = order.status === 'delivered'
+            // Takeaway "Pay at Pickup" order that is placed but not yet paid.
+            const isAwaitingPickupPayment =
+              String(order.payment?.status || '').toLowerCase() === 'awaiting_pickup_payment'
             const isRestaurantCancelled = order.isRestaurantCancelled || order.status === 'restaurant_cancelled'
             const isUserCancelled = order.isUserCancelled || (isCancelled && order.cancelledBy === 'user')
             // Prefer restaurant image; fallback to food image from first item, then generic food photo
@@ -923,7 +926,11 @@ Order again from this restaurant in the ${companyName} app.`
                               ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50' 
                               : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50'
                         }`}>
-                          {(isDelivered && isCodOrWallet) ? 'Paid' : order.payment.status}
+                          {(isDelivered && isCodOrWallet)
+                            ? 'Paid'
+                            : isAwaitingPickupPayment
+                              ? 'Payment Pending'
+                              : order.payment.status}
                         </span>
                       )}
                     </div>
@@ -950,6 +957,14 @@ Order again from this restaurant in the ${companyName} app.`
                         <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
                           Cancelled
                         </span>
+                      ) : isAwaitingPickupPayment ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(toFoodUserPath(`/user/orders/${order.id}`), { state: { from: '/food/user/orders', order } })}
+                          className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-sm border border-amber-500 uppercase tracking-widest active:scale-95 transition-transform"
+                        >
+                          Pay Now
+                        </button>
                       ) : (order.orderType === 'takeaway' && (order.status === 'ready' || order.status === 'ready_for_pickup')) ? (
                         <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-600 text-white shadow-sm border border-green-600 uppercase tracking-widest">
                           Ready for Pickup

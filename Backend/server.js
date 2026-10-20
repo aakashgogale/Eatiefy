@@ -21,6 +21,7 @@ let fssaiExpiryInterval = null;
 let deliveryOfferSweepInterval = null;
 let restaurantAcceptSweepInterval = null;
 let restaurantAlarmSweepInterval = null;
+let pickupPaymentExpiryInterval = null;
 // Repeats are claimed per order at their own interval; this is only how often that is checked.
 const RESTAURANT_ALARM_SWEEP_MS = 5 * 1000;
 
@@ -40,6 +41,7 @@ const gracefulShutdown = async (signal) => {
             if (deliveryOfferSweepInterval) clearInterval(deliveryOfferSweepInterval);
             if (restaurantAcceptSweepInterval) clearInterval(restaurantAcceptSweepInterval);
             if (restaurantAlarmSweepInterval) clearInterval(restaurantAlarmSweepInterval);
+            if (pickupPaymentExpiryInterval) clearInterval(pickupPaymentExpiryInterval);
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -163,6 +165,21 @@ const startServer = async () => {
         };
         runRestaurantAcceptSweep();
         restaurantAcceptSweepInterval = setInterval(runRestaurantAcceptSweep, 30 * 1000);
+
+        // Takeaway "Pay at Pickup" orders the customer never paid for are expired
+        // after their window, so they don't linger as unpaid "created" orders.
+        const runPickupPaymentExpirySweep = async () => {
+            try {
+                const { expireUnpaidPickupOrders } = await import(
+                    './src/modules/food/orders/services/pickupPaymentTimeout.service.js'
+                );
+                await expireUnpaidPickupOrders();
+            } catch (err) {
+                logger.error(`Pay-at-Pickup expiry sweep error: ${err.message}`);
+            }
+        };
+        runPickupPaymentExpirySweep();
+        pickupPaymentExpiryInterval = setInterval(runPickupPaymentExpirySweep, 60 * 1000);
 
         // New orders keep ringing on the restaurant's phone (even with the app
         // closed) until answered; answered ones get a push that stops the alarm.

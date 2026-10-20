@@ -290,6 +290,9 @@ const restaurantSchema = new mongoose.Schema(
     },
     takeawaySettings: {
       isEnabled: { type: Boolean, default: false },
+      // Lets takeaway customers place the order first and pay online when they
+      // reach the counter ("Pay at Pickup"). Off by default; the restaurant opts in.
+      payAtPickupEnabled: { type: Boolean, default: false },
     },
     menu: {
       sections: { type: Array, default: [] },

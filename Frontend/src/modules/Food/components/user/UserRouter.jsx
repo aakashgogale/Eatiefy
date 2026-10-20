@@ -30,7 +30,6 @@ const ProductDetail = lazy(() => import("@food/pages/user/ProductDetail"))
 
 // Cart
 const Cart = lazy(() => import("@food/pages/user/cart/Cart"))
-const Checkout = lazy(() => import("@food/pages/user/cart/Checkout"))
 const SelectAddress = lazy(() => import("@food/pages/user/cart/SelectAddress"))
 const AddressSelectorPage = lazy(() => import("@food/pages/user/cart/AddressSelectorPage"))
 
@@ -269,7 +268,6 @@ export default function UserRouter() {
 
             {/* Cart */}
             <Route path="cart" element={<OrderFlowBoundary scope="cart" message="Your cart is saved. Try again, or check My Orders if you already placed this order."><Cart /></OrderFlowBoundary>} />
-            <Route path="cart/checkout" element={<OrderFlowBoundary scope="checkout" message="Your cart is saved. Try again, or check My Orders if you already placed this order."><Checkout /></OrderFlowBoundary>} />
             <Route path="cart/select-address" element={<SelectAddress />} />
 
             {/* Orders */}

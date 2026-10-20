@@ -57,6 +57,30 @@ export async function verifyPaymentController(req, res, next) {
     }
 }
 
+// --- Pay-at-Pickup: pay an EXISTING unpaid takeaway order on arrival ---
+export async function initiatePickupPaymentController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params?.orderId;
+        const result = await orderService.initiatePickupPayment(userId, orderId);
+        return sendResponse(res, 200, 'Pickup payment initiated', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function verifyPickupPaymentController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        // Reuse the standard verify flow, binding it to the order in the route.
+        const dto = validateVerifyPaymentDto({ ...req.body, orderId: req.params?.orderId });
+        const result = await orderService.verifyPayment(userId, dto);
+        return sendResponse(res, 200, 'Payment verified', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function listOrdersUserController(req, res, next) {
     try {
         const userId = req.user?.userId;

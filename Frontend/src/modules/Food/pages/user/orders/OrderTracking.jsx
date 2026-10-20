@@ -64,6 +64,7 @@ import { useProfile } from "@food/context/ProfileContext"
 import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
+import { initRazorpayPayment, preloadRazorpayScript } from "@food/utils/razorpay"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { useUserNotifications, ORDER_REALTIME_RESYNC_EVENT } from "@food/hooks/useUserNotifications"
 import circleIcon from "@food/assets/circleicon.webp"
@@ -1137,6 +1138,77 @@ export default function OrderTracking() {
   const [estimatedTime, setEstimatedTime] = useState(29)
 
   const isTakeawayOrder = order?.orderType === 'takeaway'
+
+  // "Pay at Pickup" order that is placed but not yet paid. The customer taps
+  // "Pay Now" from this screen when they reach the restaurant.
+  const isAwaitingPickupPayment =
+    String(order?.payment?.status || "").toLowerCase() === "awaiting_pickup_payment"
+  const [isPayingPickup, setIsPayingPickup] = useState(false)
+
+  // Preload the Razorpay SDK so the modal opens instantly when they tap Pay Now.
+  useEffect(() => {
+    if (isAwaitingPickupPayment) preloadRazorpayScript()
+  }, [isAwaitingPickupPayment])
+
+  const handlePayAtPickupNow = useCallback(async () => {
+    if (isPayingPickup) return
+    const payOrderId = order?._id || order?.orderId || orderId
+    if (!payOrderId) return
+    setIsPayingPickup(true)
+    try {
+      const initiateResponse = await orderAPI.initiatePickupPayment(payOrderId)
+      const rzp = initiateResponse?.data?.data
+      if (!rzp || !rzp.orderId || !rzp.key) {
+        throw new Error("Failed to initialize payment. Please try again.")
+      }
+      const contact = String(profile?.phone || order?.customerPhone || "").replace(/\D/g, "").slice(-10)
+      let handled = false
+      await initRazorpayPayment({
+        key: rzp.key,
+        amount: rzp.amount,
+        currency: rzp.currency || "INR",
+        order_id: rzp.orderId,
+        name: companyName || "Eatiefy",
+        description: `Pay at Pickup - ₹${(rzp.amount / 100).toFixed(2)}`,
+        prefill: {
+          name: profile?.name || order?.customerName || "",
+          email: profile?.email || "",
+          contact,
+        },
+        handler: async (response) => {
+          handled = true
+          try {
+            await orderAPI.verifyPickupPayment(payOrderId, {
+              razorpayOrderId: response?.razorpay_order_id,
+              razorpayPaymentId: response?.razorpay_payment_id,
+              razorpaySignature: response?.razorpay_signature,
+            })
+            toast.success("Payment successful! Your order is confirmed.")
+            handleRefresh()
+          } catch (err) {
+            toast.error(err?.response?.data?.message || err?.message || "Payment verification failed. Please contact the restaurant.")
+          } finally {
+            setIsPayingPickup(false)
+          }
+        },
+        onError: (err) => {
+          if (handled) return
+          handled = true
+          const msg = err?.description || err?.message
+          if (err?.code !== "PAYMENT_CANCELLED" && msg) toast.error(msg)
+          setIsPayingPickup(false)
+        },
+        onClose: () => {
+          if (handled) return
+          handled = true
+          setIsPayingPickup(false)
+        },
+      })
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Could not start payment. Please try again.")
+      setIsPayingPickup(false)
+    }
+  }, [isPayingPickup, order, orderId, profile, companyName])
 
   // Show the rider journey once a delivery partner has accepted (delivery orders only).
   const isRiderJourney =
@@ -2953,6 +3025,33 @@ export default function OrderTracking() {
           </div>
         </div>
       </motion.div>
+
+      {/* Pay at Pickup: fixed "Pay Now" bar until the order is paid */}
+      {isAwaitingPickupPayment && !isCancelledOrder && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#1c1c1c] border-t border-amber-200 dark:border-amber-900/50 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+          style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        >
+          <div className="max-w-lg mx-auto px-4 py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <ShoppingBag className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                Reached the restaurant? Pay now to confirm your order.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handlePayAtPickupNow}
+              disabled={isPayingPickup}
+              className="w-full bg-[#1F6B45] hover:bg-[#14512F] disabled:opacity-70 text-white h-12 rounded-2xl font-black text-sm tracking-wide shadow-lg shadow-[#1F6B45]/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            >
+              {isPayingPickup
+                ? "Opening payment…"
+                : `Pay Now ₹${Number(order?.pricing?.total ?? order?.totalAmount ?? order?.payment?.amountDue ?? 0).toFixed(0)}`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Floating Sticky Side Handover OTP Widget (Always Visible until Handover) */}
       {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (

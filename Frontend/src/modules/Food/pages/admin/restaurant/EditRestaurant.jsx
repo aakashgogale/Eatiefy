@@ -87,6 +87,7 @@ const normalizeDetailsFormFromRestaurant = (restaurant) => {
     closingTime: restaurant?.closingTime || restaurant?.deliveryTimings?.closingTime || "",
     isActive: restaurant?.isActive !== false,
     takeawayEnabled: restaurant?.takeawaySettings?.isEnabled ?? false,
+    payAtPickupEnabled: restaurant?.takeawaySettings?.payAtPickupEnabled ?? false,
   }
 }
 
@@ -323,6 +324,7 @@ export default function EditRestaurant() {
         isActive: detailsForm.isActive !== false,
         takeawaySettings: {
           isEnabled: detailsForm.takeawayEnabled === true,
+          payAtPickupEnabled: detailsForm.payAtPickupEnabled === true,
         },
       }
 
@@ -554,6 +556,38 @@ export default function EditRestaurant() {
                       onClick={() => setDetailsForm((p) => ({ ...p, takeawayEnabled: false }))}
                       className={`px-3 py-1.5 text-xs rounded-full border ${
                         detailsForm.takeawayEnabled === false
+                          ? "bg-slate-900 text-white border-slate-900"
+                          : "bg-white text-slate-700 border-slate-300"
+                      }`}
+                    >
+                      Disabled
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <Label>Pay at Pickup (Online)</Label>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Lets takeaway customers place the order first and pay online when they reach the counter.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={detailsForm.takeawayEnabled !== true}
+                      onClick={() => setDetailsForm((p) => ({ ...p, payAtPickupEnabled: true }))}
+                      className={`px-3 py-1.5 text-xs rounded-full border disabled:opacity-40 ${
+                        detailsForm.payAtPickupEnabled === true
+                          ? "bg-green-600 text-white border-green-600"
+                          : "bg-white text-slate-700 border-slate-300"
+                      }`}
+                    >
+                      Enabled
+                    </button>
+                    <button
+                      type="button"
+                      disabled={detailsForm.takeawayEnabled !== true}
+                      onClick={() => setDetailsForm((p) => ({ ...p, payAtPickupEnabled: false }))}
+                      className={`px-3 py-1.5 text-xs rounded-full border disabled:opacity-40 ${
+                        detailsForm.payAtPickupEnabled === false
                           ? "bg-slate-900 text-white border-slate-900"
                           : "bg-white text-slate-700 border-slate-300"
                       }`}

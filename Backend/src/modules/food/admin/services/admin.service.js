@@ -3535,6 +3535,17 @@ export async function updateRestaurantById(id, body = {}) {
         }
     }
 
+    if (body.takeawaySettings !== undefined && typeof body.takeawaySettings === 'object') {
+        doc.takeawaySettings = {
+            ...(doc.takeawaySettings?.toObject?.() || doc.takeawaySettings || {}),
+            isEnabled: Boolean(body.takeawaySettings.isEnabled),
+            // Pay-at-Pickup can only be on when takeaway itself is on.
+            payAtPickupEnabled:
+                Boolean(body.takeawaySettings.isEnabled) &&
+                Boolean(body.takeawaySettings.payAtPickupEnabled),
+        };
+    }
+
     // The selected zone must cover the restaurant location being saved.
     await assertZoneCoversLocation(doc.zoneId, doc.location?.latitude, doc.location?.longitude);
 

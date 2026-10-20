@@ -129,10 +129,7 @@ const resolveBackPath = ({ pathname, search, state, orderType }) => {
     return defaultHomePath
   }
 
-  if (
-    normalizedPath === "/user/cart/checkout" ||
-    normalizedPath === "/user/cart/select-address"
-  ) {
+  if (normalizedPath === "/user/cart/select-address") {
     return "/food/user/cart"
   }
 

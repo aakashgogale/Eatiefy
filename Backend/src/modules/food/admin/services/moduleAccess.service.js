@@ -5,6 +5,7 @@ const CACHE_TTL_MS = 3000;
 // Mirrors the admin customization toggles and their shipped defaults.
 const MODULE_KEYS = {
     takeaway: { key: 'takeaway_enabled', defaultValue: true },
+    takeawayPayAtPickup: { key: 'takeaway_pay_at_pickup_enabled', defaultValue: true },
     dining: { key: 'dining_enabled', defaultValue: false },
     // Onboarding fee collection. Defaults to true and readFlag also falls back to
     // the default on a config read error, so a DB blip can never silently waive
@@ -46,6 +47,12 @@ const readFlag = async ({ key, defaultValue }) => {
 
 export const isTakeawayEnabled = () => readFlag(MODULE_KEYS.takeaway);
 export const isDiningEnabled = () => readFlag(MODULE_KEYS.dining);
+
+/**
+ * Admin master switch for takeaway "Pay at Pickup". A restaurant can only offer
+ * it when this is on AND its own takeawaySettings.payAtPickupEnabled is on.
+ */
+export const isTakeawayPayAtPickupEnabled = () => readFlag(MODULE_KEYS.takeawayPayAtPickup);
 
 /**
  * Whether restaurants must complete the one-time Razorpay onboarding payment.

@@ -129,6 +129,9 @@ export function validateCreateOrderDto(body) {
         sendCutlery: z.boolean().optional(),
         // 'razorpay_qr' means COD-style flow, but payment is collected via Razorpay QR at delivery.
         paymentMethod: z.enum(['cash', 'razorpay', 'razorpay_qr', 'card', 'wallet']),
+        // Takeaway "Pay at Pickup (online)": place the order now, pay online at the
+        // counter. Order is created unpaid; the restaurant is not notified until paid.
+        payAtPickup: z.boolean().optional().default(false),
         zoneId: z.string().nullable().optional(),
         scheduledAt: z.string().datetime({ offset: true }).nullable().optional(),
         razorpayOrderId: z.string().optional(),

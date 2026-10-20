@@ -275,7 +275,9 @@ const toRestaurantProfile = (doc) => {
             diningType: String(doc.diningSettings?.diningType || 'family-dining').trim() || 'family-dining'
         },
         takeawaySettings: {
-            isEnabled: doc.takeawaySettings?.isEnabled === true
+            isEnabled: doc.takeawaySettings?.isEnabled === true,
+            // Lets the user app offer "Pay at Pickup" for this restaurant.
+            payAtPickupEnabled: doc.takeawaySettings?.payAtPickupEnabled === true
         },
         isAcceptingOrders: doc.isAcceptingOrders !== false,
         status: doc.status || null,

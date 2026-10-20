@@ -20,6 +20,14 @@ const CUSTOMIZATION_TOGGLES = [
         description: 'Global toggle for takeaway COD visibility'
     },
     {
+        key: 'takeaway_pay_at_pickup_enabled',
+        // Admin master switch for takeaway "Pay at Pickup" (place now, pay online
+        // on arrival). Per-restaurant opt-in (takeawaySettings.payAtPickupEnabled)
+        // must ALSO be on for a restaurant to offer it.
+        defaultValue: true,
+        description: 'Global master toggle for takeaway Pay-at-Pickup (customer places order, pays online at the counter)'
+    },
+    {
         key: 'delivery_cod_enabled',
         defaultValue: true,
         description: 'Global toggle for delivery COD visibility'

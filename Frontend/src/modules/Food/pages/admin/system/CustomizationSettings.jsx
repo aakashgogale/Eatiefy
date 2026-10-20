@@ -45,6 +45,13 @@ const CUSTOMIZATION_TOGGLES = [
     defaultValue: true,
   },
   {
+    key: "takeaway_pay_at_pickup_enabled",
+    label: "Takeaway Pay at Pickup",
+    description:
+      "Master switch for takeaway Pay-at-Pickup (customer places the order, pays online at the counter). Each restaurant must also enable it.",
+    defaultValue: true,
+  },
+  {
     key: "delivery_cod_enabled",
     label: "Delivery COD",
     description:

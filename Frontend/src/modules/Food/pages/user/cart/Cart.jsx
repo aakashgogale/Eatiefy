@@ -252,6 +252,10 @@ export default function Cart() {
     }
   }, [cart.length])
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash")
+  // True when the takeaway customer chose "Pay at Pickup (online)": the order is
+  // placed now and paid online at the counter. selectedPaymentMethod stays
+  // "razorpay" (it is still an online payment, just deferred).
+  const [payAtPickup, setPayAtPickup] = useState(false)
   const [showPaymentSheet, setShowPaymentSheet] = useState(false)
   const [walletBalance, setWalletBalance] = useState(0)
   const [isLoadingWallet, setIsLoadingWallet] = useState(false)
@@ -320,6 +324,7 @@ export default function Cart() {
   const [customizationSettings, setCustomizationSettings] = useState({
     cod_enabled: true,
     takeaway_cod_enabled: true,
+    takeaway_pay_at_pickup_enabled: true,
     delivery_cod_enabled: true,
     dining_cod_enabled: true,
     wallet_payment_enabled: true,
@@ -346,14 +351,14 @@ export default function Cart() {
     if (methodId === "razorpay") return customizationSettings.online_payment_enabled !== false
     if (methodId === "wallet") return customizationSettings.wallet_payment_enabled !== false
     if (methodId === "cash") {
-      if (customizationSettings.cod_blocking_feature_enabled !== false && userProfile?.isCodBlocked) return false
-      
-      // General COD toggle (Excludes Takeaway)
-      if (orderType !== "takeaway") {
-        if (customizationSettings.cod_enabled === false) return false
-      }
+      // Takeaway is online-payment only — cash / Pay-at-Pickup is never offered.
+      if (orderType === "takeaway") return false
 
-      if (orderType === "takeaway") return customizationSettings.takeaway_cod_enabled !== false
+      if (customizationSettings.cod_blocking_feature_enabled !== false && userProfile?.isCodBlocked) return false
+
+      // General COD toggle
+      if (customizationSettings.cod_enabled === false) return false
+
       if (orderType === "delivery") return customizationSettings.delivery_cod_enabled !== false
       if (orderType === "dining") return customizationSettings.dining_cod_enabled !== false
       return true
@@ -361,18 +366,20 @@ export default function Cart() {
     return true
   }
 
-  // Auto-switch payment method if current one becomes disabled
+  // Auto-switch payment method if current one becomes disabled.
+  // Takeaway is online-only, so prefer Online Payment there; delivery/dining
+  // keep their cash-first default.
   useEffect(() => {
     if (!isPaymentMethodEnabled(selectedPaymentMethod)) {
-      if (isPaymentMethodEnabled("cash")) {
-        setSelectedPaymentMethod("cash")
-      } else if (isPaymentMethodEnabled("razorpay")) {
-        setSelectedPaymentMethod("razorpay")
-      } else if (isPaymentMethodEnabled("wallet")) {
-        setSelectedPaymentMethod("wallet")
-      }
+      const preference =
+        orderType === "takeaway"
+          ? ["razorpay", "wallet", "cash"]
+          : ["cash", "razorpay", "wallet"]
+      const next = preference.find((method) => isPaymentMethodEnabled(method))
+      if (next) setSelectedPaymentMethod(next)
     }
   }, [orderType, customizationSettings, selectedPaymentMethod, userProfile])
+
 
   // Fetch latest user profile to ensure COD block status is up to date when entering Cart
   useEffect(() => {
@@ -457,6 +464,22 @@ export default function Cart() {
   const takeawayModuleEnabled = useTakeawayEnabled()
   const restaurantOffersTakeaway = restaurantData?.takeawaySettings?.isEnabled === true
   const canChooseTakeaway = takeawayModuleEnabled && restaurantOffersTakeaway && orderType !== "dining"
+
+  // "Pay at Pickup" is offered only for takeaway, when the admin master toggle is
+  // on AND this restaurant has opted in. Both the user placing and the backend
+  // enforce it, so a direct API call can't bypass a restaurant that disabled it.
+  const payAtPickupAvailable =
+    orderType === "takeaway" &&
+    customizationSettings.takeaway_pay_at_pickup_enabled !== false &&
+    restaurantData?.takeawaySettings?.payAtPickupEnabled === true
+
+  // "Pay at Pickup" only applies to takeaway and only while the restaurant offers
+  // it. Drop the flag otherwise so it can never carry onto a delivery/dining order.
+  useEffect(() => {
+    if (payAtPickup && !payAtPickupAvailable) {
+      setPayAtPickup(false)
+    }
+  }, [payAtPickup, payAtPickupAvailable])
 
   // Use backend pricing if available, otherwise fallback to item sums
   const subtotal = pricing?.subtotal || cart.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
@@ -1640,7 +1663,7 @@ export default function Cart() {
     selectedPaymentMethod === "wallet"
       ? "Wallet"
       : selectedPaymentMethod === "razorpay"
-        ? "Online Payment"
+        ? (payAtPickup ? "Pay at Pickup" : orderType === "takeaway" ? "Pay Now" : "Online Payment")
         : orderType === "takeaway"
           ? "Pay at Pickup"
           : "Cash on Delivery"
@@ -2414,6 +2437,8 @@ export default function Cart() {
         restaurantNote: restaurantNote || "",
         sendCutlery: sendCutlery !== false,
         paymentMethod: selectedPaymentMethod,
+        // Takeaway "Pay at Pickup": placed now, paid online at the counter.
+        payAtPickup: payAtPickup === true,
         // `useZone()` can return `null`. Zod expects string/undefined, not null.
         zoneId: zoneId || undefined,
         scheduledAt: isScheduled ? new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString() : undefined,
@@ -2461,6 +2486,19 @@ export default function Cart() {
             debugError("Error refreshing wallet balance:", error)
           }
         }
+        return
+      }
+
+      // Pay at Pickup: create the order now, unpaid. No Razorpay modal here —
+      // the customer pays online from the order screen when they reach the counter.
+      if (payAtPickup) {
+        stage = "create-order:pay_at_pickup"
+        const orderResponse = await orderAPI.createOrder(orderPayload)
+        completePlacedOrder(orderResponse, {
+          stage,
+          successMessage: "Takeaway order placed. Pay online when you reach the restaurant.",
+        })
+        setIsPlacingOrder(false)
         return
       }
 
@@ -4028,7 +4066,7 @@ export default function Cart() {
                       {[
                         {
                           id: 'razorpay',
-                          name: 'Online Payment',
+                          name: orderType === 'takeaway' ? 'Pay Now' : 'Online Payment',
                           description: 'UPI, Cards, Netbanking',
                           icon: <Zap className="w-5 h-5" />,
                           color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
@@ -4037,6 +4075,17 @@ export default function Cart() {
                           disabled: !isPaymentMethodEnabled("razorpay"),
                           disabledText: 'Online Pay Disabled'
                         },
+                        // Takeaway only: place now, pay online at the counter.
+                        ...(payAtPickupAvailable ? [{
+                          id: 'pay_at_pickup',
+                          name: 'Pay at Pickup',
+                          description: 'Place now, pay online when you reach the restaurant',
+                          icon: <ShoppingBag className="w-5 h-5" />,
+                          color: 'bg-amber-50 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400',
+                          selectedColor: 'bg-amber-500 text-white',
+                          disabled: !isPaymentMethodEnabled("razorpay"),
+                          disabledText: 'Online Pay Disabled'
+                        }] : []),
                         {
                           id: 'wallet',
                           name: 'Quick Wallet',
@@ -4059,22 +4108,34 @@ export default function Cart() {
                           disabledText: 'COD Disabled',
                           hideWhenDisabled: true
                         }
-                      ].filter(option => !option.hideWhenDisabled || !option.disabled).map((option) => (
+                      ].filter(option => !option.hideWhenDisabled || !option.disabled).map((option) => {
+                        // "Pay at Pickup" is still an online (razorpay) payment, just
+                        // deferred; the dedicated flag distinguishes the two razorpay rows.
+                        const isSelected = option.id === 'pay_at_pickup'
+                          ? (payAtPickup && selectedPaymentMethod === 'razorpay')
+                          : (!payAtPickup && selectedPaymentMethod === option.id)
+                        return (
                         <button
                           key={option.id}
                           onClick={() => {
                             if (!option.disabled) {
-                              setSelectedPaymentMethod(option.id)
+                              if (option.id === 'pay_at_pickup') {
+                                setSelectedPaymentMethod('razorpay')
+                                setPayAtPickup(true)
+                              } else {
+                                setSelectedPaymentMethod(option.id)
+                                setPayAtPickup(false)
+                              }
                               setShowPaymentSheet(false)
                             }
                           }}
-                           className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${selectedPaymentMethod === option.id
+                           className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${isSelected
                                ? 'border-[#1F6B45] bg-[#1F6B45] shadow-lg shadow-[#1F6B45]/30'
                                : 'border-gray-100 dark:border-gray-800/80 bg-white dark:bg-[#222222] hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/30 shadow-sm'
                              } ${option.disabled ? 'opacity-40 grayscale-[0.8] cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`}
                         >
                           <div className="flex items-center gap-4">
-                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${selectedPaymentMethod === option.id
+                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${isSelected
                                 ? 'bg-white/20 text-white'
                                 : option.color
                               }`}>
@@ -4082,12 +4143,12 @@ export default function Cart() {
                             </div>
                             <div className="text-left">
                               <div className="flex items-center gap-2">
-                                <span className={`text-sm font-black tracking-tight leading-none transition-colors ${selectedPaymentMethod === option.id ? 'text-white' : 'text-gray-900 dark:text-gray-100'
+                                <span className={`text-sm font-black tracking-tight leading-none transition-colors ${isSelected ? 'text-white' : 'text-gray-900 dark:text-gray-100'
                                   }`}>
                                   {option.name}
                                 </span>
                                 {option.badge && (
-                                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm tracking-wider ${selectedPaymentMethod === option.id
+                                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm tracking-wider ${isSelected
                                       ? 'bg-white/20 text-white'
                                       : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                                     }`}>
@@ -4096,15 +4157,15 @@ export default function Cart() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1.5 mt-1">
-                                <p className={`text-[11px] font-bold transition-colors ${selectedPaymentMethod === option.id ? 'text-white/80' : 'text-gray-400'
+                                <p className={`text-[11px] font-bold transition-colors ${isSelected ? 'text-white/80' : 'text-gray-400'
                                   }`}>
                                   {option.description}
                                 </p>
                                 {option.subInfo && !option.disabled && (
                                   <>
-                                    <span className={`w-1 h-1 rounded-full ${selectedPaymentMethod === option.id ? 'bg-white/40' : 'bg-orange-300 dark:bg-orange-700'
+                                    <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/40' : 'bg-orange-300 dark:bg-orange-700'
                                       }`} />
-                                    <p className={`text-[10px] font-black uppercase tracking-tighter transition-colors ${selectedPaymentMethod === option.id ? 'text-white' : 'text-green-600 dark:text-green-500'
+                                    <p className={`text-[10px] font-black uppercase tracking-tighter transition-colors ${isSelected ? 'text-white' : 'text-green-600 dark:text-green-500'
                                       }`}>
                                       {option.subInfo}
                                     </p>
@@ -4119,14 +4180,15 @@ export default function Cart() {
                             </div>
                           </div>
 
-                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${selectedPaymentMethod === option.id
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isSelected
                               ? 'bg-white border-white'
                               : 'border-gray-200 dark:border-gray-700'
                             }`}>
-                             {selectedPaymentMethod === option.id && <Check className="w-3.5 h-3.5 text-[#1F6B45]" strokeWidth={4} />}
+                             {isSelected && <Check className="w-3.5 h-3.5 text-[#1F6B45]" strokeWidth={4} />}
                            </div>
                         </button>
-                      ))}
+                        )
+                      })}
                     </div>
 
                     <div

@@ -401,6 +401,7 @@ export default function OrdersPage({ statusKey = "all" }) {
       else if (s === "paid" || s === "authorized" || s === "captured" || s === "settled") paymentStatus = "Paid"
       else if (s === "failed") paymentStatus = "Failed"
       else if (s === "cod_pending") paymentStatus = "COD Pending"
+      else if (s === "awaiting_pickup_payment") paymentStatus = "Awaiting Pickup Payment"
       else if (isQrPayment && s !== "cod_pending" && s !== "pending") paymentStatus = "Paid"
       else if (!paymentStatus) paymentStatus = "Pending"
 

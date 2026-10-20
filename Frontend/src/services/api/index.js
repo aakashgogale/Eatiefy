@@ -3101,6 +3101,15 @@ export const orderAPI = {
     apiClient.post("/food/orders/verify-payment", body ?? {}, {
       contextModule: "user",
     }),
+  // Pay-at-Pickup: pay an existing unpaid takeaway order when reaching the counter.
+  initiatePickupPayment: (orderId) =>
+    apiClient.post(`/food/orders/${orderId}/pay-initiate`, {}, {
+      contextModule: "user",
+    }),
+  verifyPickupPayment: (orderId, body) =>
+    apiClient.post(`/food/orders/${orderId}/pay-verify`, body ?? {}, {
+      contextModule: "user",
+    }),
   getOrders: (params = {}) =>
     apiClient
       .get("/food/orders", {
