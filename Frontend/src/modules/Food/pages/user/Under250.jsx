@@ -1381,7 +1381,7 @@ export default function Under250({ isTabActive = true }) {
             <div key={`${index}-${imgSrc}`} className="w-full h-full flex-shrink-0 relative">
               <OptimizedImage
                 src={imgSrc}
-                alt={`Under 250 Banner ${index + 1}`}
+                alt={`Under 99 Banner ${index + 1}`}
                 priority={index === 0}
                 className="w-full h-full"
                 objectFit="cover"
