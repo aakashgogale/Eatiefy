@@ -360,13 +360,13 @@ export const PickupActionModal = ({
 
               <div>
                 <p className="text-center text-[10px] font-bold uppercase tracking-widest mb-3 text-green-600">
-                  Swipe to pick up
+                  {billImageUploaded ? 'Swipe to pick up' : 'Upload bill photo to continue'}
                 </p>
-                <ActionSlider 
+                <ActionSlider
                   key="action-pickup"
-                  label="Slide to Pick Up" 
+                  label={billImageUploaded ? "Slide to Pick Up" : "Upload Bill Photo First"}
                   successLabel="Picked Up!"
-                  disabled={false}
+                  disabled={!billImageUploaded}
                   onConfirm={() => onPickedUp(billImageUrl)}
                   color="bg-orange-500"
                 />

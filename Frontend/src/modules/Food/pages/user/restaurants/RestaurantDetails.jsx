@@ -3081,17 +3081,17 @@ function RestaurantDetailsContent() {
 
                               {/* Left Side - Details */}
                               <div className="flex-1 min-w-0">
-                                <h3 className="font-bold text-gray-800 dark:text-white text-lg leading-tight flex items-center gap-2">
+                                <h3 className="font-bold text-gray-800 dark:text-white text-lg leading-tight flex items-start gap-2">
                                   {isVeg ? (
-                                    <div className="w-4 h-4 border-2 border-green-600 flex items-center justify-center rounded-sm flex-shrink-0 p-[2px]">
+                                    <div className="w-4 h-4 border-2 border-green-600 flex items-center justify-center rounded-sm flex-shrink-0 p-[2px] mt-1">
                                       <div className="w-full h-full bg-green-600 rounded-full"></div>
                                     </div>
                                   ) : (
-                                    <div className="w-4 h-4 border-2 border-red-600 flex items-center justify-center rounded-sm flex-shrink-0 p-[2px]">
+                                    <div className="w-4 h-4 border-2 border-red-600 flex items-center justify-center rounded-sm flex-shrink-0 p-[2px] mt-1">
                                       <div className="w-full h-full bg-red-600 rounded-full"></div>
                                     </div>
                                   )}
-                                  {item.name}
+                                  <span className="min-w-0">{item.name}</span>
                                 </h3>
 
                                 {/* Highly Reordered Progress Bar - Removed static version */}
@@ -3318,17 +3318,17 @@ function RestaurantDetailsContent() {
                                       >
                                         {/* Left Side - Details */}
                                         <div className="flex-1 min-w-0">
-                                          <h3 className="font-bold text-gray-800 dark:text-white text-lg leading-tight flex items-center gap-2">
+                                          <h3 className="font-bold text-gray-800 dark:text-white text-lg leading-tight flex items-start gap-2">
                                             {isVeg ? (
-                                              <div className="w-4 h-4 border-2 border-[#8CC63F] flex items-center justify-center rounded-sm flex-shrink-0 p-[2px]">
+                                              <div className="w-4 h-4 border-2 border-[#8CC63F] flex items-center justify-center rounded-sm flex-shrink-0 p-[2px] mt-1">
                                                 <div className="w-full h-full bg-[#8CC63F] rounded-full"></div>
                                               </div>
                                             ) : (
-                                              <div className="w-4 h-4 border-2 border-[#1F6B45] flex items-center justify-center rounded-sm flex-shrink-0 p-[2px]">
+                                              <div className="w-4 h-4 border-2 border-[#1F6B45] flex items-center justify-center rounded-sm flex-shrink-0 p-[2px] mt-1">
                                                 <div className="w-full h-full bg-[#1F6B45] rounded-full"></div>
                                               </div>
                                             )}
-                                            {item.name}
+                                            <span className="min-w-0">{item.name}</span>
                                           </h3>
 
                                           {/* Highly Reordered Progress Bar - Removed static version */}

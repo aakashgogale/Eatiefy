@@ -1234,6 +1234,10 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
 }
 
 export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImageUrl) {
+  if (!billImageUrl || typeof billImageUrl !== 'string' || !billImageUrl.trim()) {
+    throw new ValidationError('Bill photo is required before confirming pickup');
+  }
+
   const identity = buildOrderIdentityFilter(orderId);
   const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');

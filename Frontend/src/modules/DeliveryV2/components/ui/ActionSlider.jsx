@@ -89,7 +89,7 @@ export const ActionSlider = ({
         }}
         className="absolute inset-0 px-16 flex items-center justify-center text-center font-extrabold text-xs sm:text-sm uppercase tracking-[0.16em] leading-none whitespace-nowrap pointer-events-none z-10 transition-opacity duration-150 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
       >
-        {disabled ? 'Action Locked' : label}
+        {label}
       </div>
 
       {/* Success View */}
