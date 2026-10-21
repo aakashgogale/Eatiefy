@@ -3530,7 +3530,7 @@ export default function Home() {
                       />
                     </div>
                     <span
-                      className={`font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
+                      className={`font-bold text-gray-800 dark:text-gray-200 text-center leading-tight w-full truncate group-hover:text-[#659116] transition-colors ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
                         }`}
                     >
                       {catName}
@@ -5140,7 +5140,7 @@ export default function Home() {
                               onError={() => { }}
                             />
                           </div>
-                          <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 text-center leading-tight px-1 break-words w-full min-w-0">
+                          <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 text-center leading-tight px-1 w-full min-w-0 line-clamp-2">
                             {categoryData.name}
                           </span>
                         </div>
@@ -5548,7 +5548,7 @@ export default function Home() {
                               }}
                             />
                           </div>
-                          <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors">
+                          <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight line-clamp-2 w-full group-hover:text-[#659116] transition-colors">
                             {category.name}
                           </span>
                         </div>
