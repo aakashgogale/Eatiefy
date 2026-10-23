@@ -42,17 +42,19 @@ const assertFoodTypeAllowedForContent = (foodType, { name, description } = {}) =
 
 const getCreateFoodPricing = (body = {}) => {
     const variants = normalizeFoodVariantsInput(extractRawFoodVariants(body));
+    const rawPrice = body.price !== undefined && body.price !== null && body.price !== '' ? Number(body.price) : NaN;
+    const hasValidPrice = Number.isFinite(rawPrice) && rawPrice >= 0;
+
     if (variants.length > 0) {
         return {
-            price: getFoodDisplayPrice({ variants }),
+            price: hasValidPrice ? rawPrice : getFoodDisplayPrice({ variants }),
             variants
         };
     }
 
-    const price = Number(body.price);
-    if (!Number.isFinite(price) || price < 0) throw new ValidationError('Price is invalid');
+    if (!hasValidPrice) throw new ValidationError('Price is invalid');
     return {
-        price,
+        price: rawPrice,
         variants: []
     };
 };
@@ -62,16 +64,28 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
     const existingHasVariants = hasFoodVariants(existing);
     const update = {};
 
+    const rawPrice = body.price !== undefined && body.price !== null && body.price !== '' ? Number(body.price) : NaN;
+    const hasValidPrice = Number.isFinite(rawPrice) && rawPrice >= 0;
+
     if (variantsTouched) {
         const variants = normalizeFoodVariantsInput(extractRawFoodVariants(body));
         update.variants = variants;
 
-        if (variants.length > 0) {
-            update.price = getFoodDisplayPrice({ variants });
+        if (hasValidPrice) {
+            update.price = rawPrice;
             return update;
         }
 
-        const nextBasePrice = body.price !== undefined ? Number(body.price) : Number(existingHasVariants ? NaN : existing.price);
+        if (variants.length > 0) {
+            // Keep existing base price if valid, else fallback to lowest variant
+            const existingPrice = Number(existing?.price);
+            update.price = Number.isFinite(existingPrice) && existingPrice >= 0
+                ? existingPrice
+                : getFoodDisplayPrice({ variants });
+            return update;
+        }
+
+        const nextBasePrice = Number.isFinite(Number(existing.price)) ? Number(existing.price) : NaN;
         if (!Number.isFinite(nextBasePrice) || nextBasePrice < 0) {
             throw new ValidationError('Base price is required when variants are removed');
         }
@@ -80,12 +94,8 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
     }
 
     if (body.price !== undefined) {
-        if (existingHasVariants) {
-            throw new ValidationError('Update variants instead of base price for foods with variants');
-        }
-        const price = Number(body.price);
-        if (!Number.isFinite(price) || price < 0) throw new ValidationError('Price is invalid');
-        update.price = price;
+        if (!hasValidPrice) throw new ValidationError('Price is invalid');
+        update.price = rawPrice;
     }
 
     return update;

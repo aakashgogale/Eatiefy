@@ -609,7 +609,7 @@ export default function FoodsList() {
       return
     }
 
-    if (!hasVariants && (!Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
       toast.error("Base price must be greater than 0")
       return
     }
@@ -666,7 +666,7 @@ export default function FoodsList() {
         categoryId: foodForm.categoryId || undefined,
         categoryName: String(foodForm.categoryName || "").trim(),
         name: foodForm.name.trim(),
-        price: hasVariants ? undefined : parsedPrice,
+        price: parsedPrice,
         adminPrice: parsedAdminPrice,
         variants: normalizedVariants.map((variant) => ({
           ...(variant.id && !variant.id.startsWith("variant-") ? { _id: variant.id } : {}),
@@ -1149,11 +1149,10 @@ export default function FoodsList() {
                   step="0.01"
                   value={foodForm.price}
                   onChange={(e) => setFoodForm((prev) => ({ ...prev, price: e.target.value }))}
-                  disabled={(foodForm.variants || []).length > 0}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
                 />
                 {(foodForm.variants || []).length > 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">Variants are active, so customers will see the lowest variant price as the starting price.</p>
+                  <p className="mt-1 text-xs text-slate-500">Base price is displayed on the menu card. Customers can select variants (Half / Full) when ordering.</p>
                 ) : null}
               </div>
               <div>

@@ -223,7 +223,7 @@ export default function ItemDetailsPage() {
         break
       }
     }
-    setBasePrice(itemVariants.length === 0 ? resolvedBasePrice : "")
+    setBasePrice(resolvedBasePrice)
     setPreparationTime(item.preparationTime || "")
     setGst(item.gst?.toString() || "5.0")
     setIsRecommended(
@@ -866,7 +866,7 @@ export default function ItemDetailsPage() {
 
     const hasVariants = normalizedVariants.length > 0
     const parsedBasePrice = Number(basePrice)
-    if (!hasVariants && (!Number.isFinite(parsedBasePrice) || parsedBasePrice < 0)) {
+    if (!Number.isFinite(parsedBasePrice) || parsedBasePrice < 0) {
       toast.error("Please enter a valid base price")
       return
     }
@@ -963,7 +963,7 @@ export default function ItemDetailsPage() {
         const createRes = await restaurantAPI.createFood({
           name: itemName.trim(),
           description: itemDescription.trim(),
-          price: hasVariants ? undefined : parsedBasePrice,
+          price: parsedBasePrice,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
           foodType: effectiveFoodType,
@@ -986,7 +986,7 @@ export default function ItemDetailsPage() {
         await restaurantAPI.updateFood(itemId, {
           name: itemName.trim(),
           description: itemDescription.trim(),
-          price: hasVariants ? undefined : parsedBasePrice,
+          price: parsedBasePrice,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
           foodType: effectiveFoodType,
@@ -1386,40 +1386,38 @@ export default function ItemDetailsPage() {
               Item price
             </label>
             <div className="space-y-3">
-              {variants.length === 0 ? (
-                <>
-                  <div className="relative">
-                    <label className="block text-xs text-gray-600 mb-1">Base price</label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={basePrice}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
-                          const parts = value.split('.')
-                          const cleanedValue = parts.length > 2
-                            ? parts[0] + '.' + parts.slice(1).join('')
-                            : value
-                          setBasePrice(cleanedValue)
-                        }}
-                        onFocus={(e) => {
-                          if (e.target.value.startsWith('\u20B9')) {
-                            e.target.value = e.target.value.replace(/[\u20B9\s]+/g, '')
-                          }
-                        }}
-                        placeholder="Enter price"
-                        className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
-                      />
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
-                      <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
-                        <EditIcon className="w-4 h-4 text-gray-500" />
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-sm text-orange-700">
-                  Customers will see the lowest variant price first.
+              <div className="relative">
+                <label className="block text-xs text-gray-600 mb-1">Base price</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={basePrice}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
+                      const parts = value.split('.')
+                      const cleanedValue = parts.length > 2
+                        ? parts[0] + '.' + parts.slice(1).join('')
+                        : value
+                      setBasePrice(cleanedValue)
+                    }}
+                    onFocus={(e) => {
+                      if (e.target.value.startsWith('\u20B9')) {
+                        e.target.value = e.target.value.replace(/[\u20B9\s]+/g, '')
+                      }
+                    }}
+                    placeholder="Enter price"
+                    className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
+                  <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
+                    <EditIcon className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+              </div>
+
+              {variants.length > 0 && (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  Base price is shown on the food menu. Customers can also choose portion variants (like Half / Full) below.
                 </div>
               )}
 

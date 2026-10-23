@@ -78,14 +78,18 @@
     (function () {
       try {
         var ua = String(navigator.userAgent || '').toLowerCase();
-        var isImin = ua.indexOf('imin') > -1;
+        var isPos = ua.indexOf('imin') > -1 ||
+                    ua.indexOf('swift') > -1 ||
+                    ua.indexOf('pos') > -1 ||
+                    ua.indexOf('sunmi') > -1 ||
+                    ua.indexOf('pax') > -1;
         var coarseNoHover =
           typeof window.matchMedia === 'function' &&
           window.matchMedia('(pointer: coarse)').matches &&
           window.matchMedia('(hover: none)').matches;
         var wideHandheld =
           coarseNoHover && window.matchMedia('(min-width: 768px)').matches;
-        if (isImin || wideHandheld) {
+        if (isPos || wideHandheld) {
           document.documentElement.setAttribute('data-pos-device', 'true');
         }
       } catch (e) { /* detection is best-effort; default (no flag) keeps web layout */ }

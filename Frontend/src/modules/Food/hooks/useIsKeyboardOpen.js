@@ -13,7 +13,31 @@ export default function useIsKeyboardOpen(threshold = 100) {
 
     let isFocusedOnInput = false
 
+    const isTextInput = (target) => {
+      if (!target) return false
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        const type = (target.type || "").toLowerCase()
+        if (["checkbox", "radio", "submit", "button", "file", "image", "reset"].includes(type)) {
+          return false
+        }
+        return true
+      }
+      return false
+    }
+
     const checkViewport = () => {
+      // If no text input is active, a virtual keyboard cannot be open.
+      // This prevents Android POS navigation/status bars from falsely triggering keyboard-open.
+      if (!isTextInput(document.activeElement)) {
+        isFocusedOnInput = false
+        setIsKeyboardOpen(false)
+        return
+      }
+
       if (window.visualViewport) {
         const heightDiff = window.innerHeight - window.visualViewport.height
         if (heightDiff > threshold) {
@@ -21,24 +45,22 @@ export default function useIsKeyboardOpen(threshold = 100) {
           return
         }
       }
-      if (!isFocusedOnInput) {
+
+      const isTouchOrMobile =
+        window.innerWidth <= 1024 ||
+        ("ontouchstart" in window) ||
+        (navigator.maxTouchPoints > 0)
+
+      if (isTouchOrMobile && isFocusedOnInput) {
+        setIsKeyboardOpen(true)
+      } else {
         setIsKeyboardOpen(false)
       }
     }
 
     const handleFocusIn = (e) => {
       const target = e.target
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
-        const type = (target.type || "").toLowerCase()
-        if (["checkbox", "radio", "submit", "button", "file", "image", "reset"].includes(type)) {
-          return
-        }
-
+      if (isTextInput(target)) {
         isFocusedOnInput = true
         const isTouchOrMobile =
           window.innerWidth <= 1024 ||

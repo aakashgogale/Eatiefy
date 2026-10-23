@@ -14,6 +14,8 @@ import useNotificationInbox from "@food/hooks/useNotificationInbox"
 import { getCachedSettings } from "@food/utils/businessSettings"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { getOrdersTabs, findActiveTab } from "./BottomNavOrders"
+import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+import NewOrderNotification from "./NewOrderNotification"
 
 /**
  * Tablet/desktop frame for the signed-in Restaurant Panel.
@@ -226,8 +228,26 @@ export function RestaurantShellIfSignedIn({ children }) {
 export default function RestaurantShell({ children }) {
   const isWide = useIsWideScreen()
   const { pathname } = useLocation()
+  const { newOrder, clearNewOrder } = useRestaurantNotifications()
+  const isOrdersMain = pathname === "/food/restaurant" || pathname === "/food/restaurant/"
+
+  const formattedNewOrder = useMemo(() => {
+    if (!newOrder) return null
+    return {
+      ...newOrder,
+      orderMongoId: newOrder.orderMongoId || newOrder._id || newOrder.id,
+      total: newOrder.total ?? newOrder.pricing?.total ?? 0,
+      customerAddress: newOrder.customerAddress || newOrder.deliveryAddress || newOrder.address,
+      restaurantNote: newOrder.restaurantNote || newOrder.note || "",
+      note: newOrder.restaurantNote || newOrder.note || "",
+    }
+  }, [newOrder])
+
   return (
     <div className="rt-shell">
+      {!isOrdersMain && formattedNewOrder && (
+        <NewOrderNotification order={formattedNewOrder} onClose={clearNewOrder} />
+      )}
       {isWide ? <RestaurantSidebar /> : null}
       <div className="rt-shell-main" data-col={getContentColumn(pathname)}>
         <Suspense fallback={PageLoader}>{children}</Suspense>

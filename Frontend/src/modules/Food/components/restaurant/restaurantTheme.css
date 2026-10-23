@@ -235,7 +235,12 @@
      The bottom bars are plain `fixed bottom-0 ... md:hidden` wrappers, so
      restoring block display is correct and deterministic for them. */
   html[data-pos-device] .restaurant-theme .fixed.bottom-0.left-0.right-0.md\:hidden {
-    display: block;
+    display: block !important;
+  }
+
+  /* Keep floating action buttons (like + Add item, Menu) properly elevated above the bottom bar on POS */
+  html[data-pos-device] .restaurant-theme .fixed.bottom-24 {
+    bottom: 6rem !important;
   }
 
   /* Safety net for any other mobile-only (`md:hidden`) chrome in the panel:
