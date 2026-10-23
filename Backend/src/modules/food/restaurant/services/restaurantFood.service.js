@@ -47,7 +47,7 @@ const getCreateFoodPricing = (body = {}) => {
 
     if (variants.length > 0) {
         return {
-            price: hasValidPrice ? rawPrice : getFoodDisplayPrice({ variants }),
+            price: getFoodDisplayPrice({ variants }),
             variants
         };
     }
@@ -61,7 +61,6 @@ const getCreateFoodPricing = (body = {}) => {
 
 const getUpdatedFoodPricing = (existing = {}, body = {}) => {
     const variantsTouched = body.variants !== undefined || body.variations !== undefined;
-    const existingHasVariants = hasFoodVariants(existing);
     const update = {};
 
     const rawPrice = body.price !== undefined && body.price !== null && body.price !== '' ? Number(body.price) : NaN;
@@ -71,17 +70,13 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
         const variants = normalizeFoodVariantsInput(extractRawFoodVariants(body));
         update.variants = variants;
 
-        if (hasValidPrice) {
-            update.price = rawPrice;
+        if (variants.length > 0) {
+            update.price = getFoodDisplayPrice({ variants });
             return update;
         }
 
-        if (variants.length > 0) {
-            // Keep existing base price if valid, else fallback to lowest variant
-            const existingPrice = Number(existing?.price);
-            update.price = Number.isFinite(existingPrice) && existingPrice >= 0
-                ? existingPrice
-                : getFoodDisplayPrice({ variants });
+        if (hasValidPrice) {
+            update.price = rawPrice;
             return update;
         }
 

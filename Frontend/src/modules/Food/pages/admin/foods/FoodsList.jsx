@@ -609,13 +609,11 @@ export default function FoodsList() {
       return
     }
 
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      if (hasVariants) {
-        parsedPrice = Math.min(...normalizedVariants.map((v) => v.price))
-      } else {
-        toast.error("Base price must be greater than 0")
-        return
-      }
+    if (hasVariants) {
+      parsedPrice = Math.min(...normalizedVariants.map((v) => v.price))
+    } else if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      toast.error("Price must be greater than 0")
+      return
     }
 
     // Empty clears the override; variants are priced individually, so none applies there.
@@ -1146,18 +1144,25 @@ export default function FoodsList() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Base Price</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={foodForm.price}
-                  onChange={(e) => setFoodForm((prev) => ({ ...prev, price: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
-                />
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  {(foodForm.variants || []).length > 0 ? "Item Price (Auto-set)" : "Item Price"}
+                </label>
                 {(foodForm.variants || []).length > 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">Base price is displayed on the menu card. Customers can select variants (Half / Full) when ordering.</p>
-                ) : null}
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 flex items-center justify-between">
+                    <span>Starting from: <strong>₹{Math.min(...foodForm.variants.map(v => Number(v.price)).filter(p => Number.isFinite(p) && p > 0)) || 0}</strong></span>
+                    <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-emerald-300 font-semibold">From lowest variant</span>
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={foodForm.price}
+                    onChange={(e) => setFoodForm((prev) => ({ ...prev, price: e.target.value }))}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+                    placeholder="Enter price"
+                  />
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Food Type</label>
