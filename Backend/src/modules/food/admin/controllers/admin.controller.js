@@ -809,6 +809,15 @@ export async function getDeliveryEarnings(req, res, next) {
     }
 }
 
+export async function getRestaurantEarnings(req, res, next) {
+    try {
+        const data = await adminService.getRestaurantEarnings(req.query || {});
+        res.status(200).json({ success: true, message: 'Restaurant earnings fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // ----- Earning Addon (admin) -----
 export async function getEarningAddons(req, res, next) {
     try {

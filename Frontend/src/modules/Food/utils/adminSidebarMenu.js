@@ -62,6 +62,7 @@ export const adminSidebarMenu = [
           { label: "Restaurant Commission", path: "/admin/food/restaurants/commission" },
           { label: "Restaurant Reviews", path: "/admin/food/restaurants/reviews" },
           { label: "Restaurant Complaints", path: "/admin/food/restaurants/complaints" },
+          { label: "Restaurant Earning", path: "/admin/food/restaurants/earnings" },
           { label: "Restaurant Settings", path: "/admin/food/restaurants/settings" },
           { label: "Onboarding Pricing", path: "/admin/food/onboarding-pricing" },
         ],
@@ -192,7 +193,10 @@ export const adminSidebarMenu = [
         type: "expandable",
         label: "Restaurant Report",
         icon: "FileText",
-        subItems: [{ label: "Restaurant Report", path: "/admin/food/restaurant-report" }],
+        subItems: [
+          { label: "Restaurant Report", path: "/admin/food/restaurant-report" },
+          { label: "Restaurant Earning", path: "/admin/food/restaurants/earnings" }
+        ],
       },
       {
         type: "expandable",

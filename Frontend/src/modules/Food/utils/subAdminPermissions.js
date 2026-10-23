@@ -27,6 +27,7 @@ const STABLE_KEYS_BY_PATH = {
   "/admin/food/restaurants/reviews": "restaurant_reviews",
   "/admin/food/restaurants/complaints": "restaurant_complaints",
   "/admin/food/restaurants/settings": "restaurant_settings",
+  "/admin/food/restaurants/earnings": "restaurant_earning",
   "/admin/food/orders": "orders",
   "/admin/food/orders/all": "orders",
   "/admin/food/orders/pending": "orders",

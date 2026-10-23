@@ -475,7 +475,7 @@ export default function AdminHome() {
               helper={`${periodLabel} restaurant share (subtotal + packaging − commission)`}
               icon={<Store className="h-5 w-5 text-lime-600" />}
               accent="bg-lime-200/40"
-              path="/admin/food/transaction-report"
+              path="/admin/food/restaurants/earnings"
               loading={isLoading}
             />
             <MetricCard

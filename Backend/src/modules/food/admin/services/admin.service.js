@@ -6095,6 +6095,221 @@ export async function getDeliveryEarnings(query = {}) {
     };
 }
 
+// ----- Restaurant Earnings (admin) -----
+export async function getRestaurantEarnings(query = {}) {
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const limit = Math.max(1, Math.min(1000, parseInt(query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const filter = {
+        orderStatus: 'delivered',
+    };
+
+    // Date range filters
+    const createdAtFilter = {};
+    if (query.fromDate) {
+        const from = new Date(query.fromDate);
+        if (!Number.isNaN(from.getTime())) {
+            from.setHours(0, 0, 0, 0);
+            createdAtFilter.$gte = from;
+        }
+    }
+    if (query.toDate) {
+        const to = new Date(query.toDate);
+        if (!Number.isNaN(to.getTime())) {
+            to.setHours(23, 59, 59, 999);
+            createdAtFilter.$lte = to;
+        }
+    }
+
+    // Period filters (only when explicit date range is not provided)
+    if (!createdAtFilter.$gte && !createdAtFilter.$lte) {
+        const period = String(query.period || 'all').trim().toLowerCase();
+        const now = new Date();
+        if (period === 'today') {
+            const start = new Date(now);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(now);
+            end.setHours(23, 59, 59, 999);
+            createdAtFilter.$gte = start;
+            createdAtFilter.$lte = end;
+        } else if (period === 'week') {
+            const start = new Date(now);
+            start.setHours(0, 0, 0, 0);
+            start.setDate(start.getDate() - start.getDay()); // Sunday
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            end.setHours(23, 59, 59, 999);
+            createdAtFilter.$gte = start;
+            createdAtFilter.$lte = end;
+        } else if (period === 'month') {
+            const start = new Date(now.getFullYear(), now.getMonth(), 1);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            end.setHours(23, 59, 59, 999);
+            createdAtFilter.$gte = start;
+            createdAtFilter.$lte = end;
+        }
+    }
+
+    if (createdAtFilter.$gte || createdAtFilter.$lte) {
+        filter.createdAt = createdAtFilter;
+    }
+
+    // Restaurant filter
+    if (query.restaurantId && mongoose.Types.ObjectId.isValid(query.restaurantId)) {
+        filter.restaurantId = new mongoose.Types.ObjectId(query.restaurantId);
+    }
+
+    // Zone filter
+    if (query.zoneId && query.zoneId !== 'all') {
+        const zoneOid = parseZoneFilter(query.zoneId);
+        if (zoneOid) {
+            const restaurantIds = await getRestaurantIdsInZone(zoneOid);
+            const zoneOr = [{ zoneId: zoneOid }];
+            if (restaurantIds.length > 0) {
+                zoneOr.push({ restaurantId: { $in: restaurantIds } });
+            }
+            filter.$and = [...(Array.isArray(filter.$and) ? filter.$and : []), { $or: zoneOr }];
+        }
+    }
+
+    // Search filter
+    const search = String(query.search || '').trim();
+    if (search) {
+        const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+
+        const restaurants = await FoodRestaurant.find({
+            $or: [
+                { restaurantName: regex },
+                { name: regex },
+                { phone: regex },
+                { ownerPhone: regex },
+                { primaryContactNumber: regex }
+            ]
+        }).select('_id').limit(200).lean();
+
+        const restaurantIds = restaurants.map((r) => r._id);
+        const searchOr = [{ orderId: regex }];
+        if (restaurantIds.length > 0) {
+            searchOr.push({ restaurantId: { $in: restaurantIds } });
+        }
+        filter.$and = [...(Array.isArray(filter.$and) ? filter.$and : []), { $or: searchOr }];
+    }
+
+    const [orders, total, earningsAgg, distinctRestaurants] = await Promise.all([
+        FoodOrder.find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('orderId orderStatus createdAt pricing restaurantId zoneId')
+            .populate({
+                path: 'restaurantId',
+                select: 'restaurantName name phone ownerPhone primaryContactNumber zoneId',
+                populate: { path: 'zoneId', select: 'name zoneName' }
+            })
+            .populate({ path: 'zoneId', select: 'name zoneName' })
+            .lean(),
+        FoodOrder.countDocuments(filter),
+        FoodOrder.aggregate([
+            { $match: filter },
+            {
+                $project: {
+                    baseSubtotal: {
+                        $ifNull: ['$pricing.baseSubtotal', { $ifNull: ['$pricing.subtotal', 0] }]
+                    },
+                    packagingFee: { $ifNull: ['$pricing.packagingFee', 0] },
+                    commission: { $ifNull: ['$pricing.restaurantCommission', 0] },
+                    orderTotal: { $ifNull: ['$pricing.total', 0] }
+                }
+            },
+            {
+                $project: {
+                    orderTotal: 1,
+                    baseSubtotal: 1,
+                    packagingFee: 1,
+                    commission: 1,
+                    restaurantEarning: {
+                        $max: [
+                            0,
+                            {
+                                $subtract: [
+                                    { $add: ['$baseSubtotal', '$packagingFee'] },
+                                    '$commission'
+                                ]
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalEarnings: { $sum: '$restaurantEarning' },
+                    totalOrders: { $sum: 1 },
+                    totalOrderAmount: { $sum: '$orderTotal' },
+                    totalFoodAmount: { $sum: '$baseSubtotal' },
+                    totalPackagingFee: { $sum: '$packagingFee' },
+                    totalCommission: { $sum: '$commission' }
+                }
+            }
+        ]),
+        FoodOrder.distinct('restaurantId', filter)
+    ]);
+
+    const earnings = orders.map((order) => {
+        const restaurant = order?.restaurantId;
+        const pricing = order?.pricing || {};
+        const baseSubtotal = Number(pricing.baseSubtotal ?? pricing.subtotal ?? 0) || 0;
+        const packagingFee = Number(pricing.packagingFee ?? 0) || 0;
+        const commission = Number(pricing.restaurantCommission ?? 0) || 0;
+        const amount = Math.max(0, Math.round((baseSubtotal + packagingFee - commission) * 100) / 100);
+        const zoneName = order?.zoneId?.name || order?.zoneId?.zoneName || restaurant?.zoneId?.name || restaurant?.zoneId?.zoneName || 'N/A';
+        const zoneId = order?.zoneId?._id || restaurant?.zoneId?._id || null;
+        const restaurantPhone = restaurant?.phone || restaurant?.ownerPhone || restaurant?.primaryContactNumber || 'N/A';
+
+        return {
+            transactionId: String(order._id),
+            orderId: order.orderId || 'N/A',
+            restaurantId: restaurant?._id ? String(restaurant._id) : null,
+            restaurantName: restaurant?.restaurantName || restaurant?.name || 'N/A',
+            restaurantPhone,
+            zoneName,
+            zoneId: zoneId ? String(zoneId) : null,
+            amount,
+            baseSubtotal,
+            packagingFee,
+            commission,
+            orderTotal: Number(pricing.total || 0) || 0,
+            orderStatus: order?.orderStatus || 'N/A',
+            createdAt: order?.createdAt || null
+        };
+    });
+
+    const agg = earningsAgg?.[0] || {};
+    const totalRestaurants = (distinctRestaurants || []).filter(Boolean).length;
+
+    return {
+        earnings,
+        summary: {
+            totalRestaurants,
+            totalEarnings: Math.round(Number(agg.totalEarnings || 0) * 100) / 100,
+            totalOrders: Number(agg.totalOrders || 0),
+            totalOrderAmount: Math.round(Number(agg.totalOrderAmount || 0) * 100) / 100,
+            totalFoodAmount: Math.round(Number(agg.totalFoodAmount || 0) * 100) / 100,
+            totalPackagingFee: Math.round(Number(agg.totalPackagingFee || 0) * 100) / 100,
+            totalCommission: Math.round(Number(agg.totalCommission || 0) * 100) / 100
+        },
+        pagination: {
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit) || 1
+        }
+    };
+}
+
 // ----- Earning Addon Offers (admin) -----
 export async function getEarningAddons(query = {}) {
     const { page = 1, limit = 20, search } = query;

@@ -78,6 +78,7 @@ router.patch('/restaurants/complaints/:id', adminController.updateRestaurantComp
 // ----- Restaurants -----
 router.get('/restaurants', adminController.getRestaurants);
 router.get('/restaurants/counts', adminController.getRestaurantCounts);
+router.get('/restaurants/earnings', adminController.getRestaurantEarnings);
 router.get('/dashboard-stats', adminController.getDashboardStats);
 router.get('/reports/restaurants', adminController.getRestaurantReport);
 router.get('/reports/transactions', adminController.getTransactionReport);

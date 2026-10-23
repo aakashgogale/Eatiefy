@@ -866,13 +866,11 @@ export default function ItemDetailsPage() {
 
     const hasVariants = normalizedVariants.length > 0
     let parsedBasePrice = Number(basePrice)
-    if (!Number.isFinite(parsedBasePrice) || parsedBasePrice <= 0) {
-      if (hasVariants) {
-        parsedBasePrice = Math.min(...normalizedVariants.map((v) => v.price))
-      } else {
-        toast.error("Please enter a valid base price")
-        return
-      }
+    if (hasVariants) {
+      parsedBasePrice = Math.min(...normalizedVariants.map((v) => v.price))
+    } else if (!Number.isFinite(parsedBasePrice) || parsedBasePrice <= 0) {
+      toast.error("Please enter a valid item price")
+      return
     }
 
     const variantPayload = normalizedVariants.map((variant) => ({
@@ -1390,38 +1388,46 @@ export default function ItemDetailsPage() {
               Item price
             </label>
             <div className="space-y-3">
-              <div className="relative">
-                <label className="block text-xs text-gray-600 mb-1">Base price</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={basePrice}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
-                      const parts = value.split('.')
-                      const cleanedValue = parts.length > 2
-                        ? parts[0] + '.' + parts.slice(1).join('')
-                        : value
-                      setBasePrice(cleanedValue)
-                    }}
-                    onFocus={(e) => {
-                      if (e.target.value.startsWith('\u20B9')) {
-                        e.target.value = e.target.value.replace(/[\u20B9\s]+/g, '')
-                      }
-                    }}
-                    placeholder="Enter price"
-                    className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
-                  />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
-                  <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
-                    <EditIcon className="w-4 h-4 text-gray-500" />
-                  </button>
+              {variants.length > 0 ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-800">Starting price on menu</p>
+                    <p className="text-base sm:text-lg font-bold text-emerald-950">
+                      ₹{Math.min(...variants.map(v => Number(v.price)).filter(p => Number.isFinite(p) && p > 0)) || 0}
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-semibold text-emerald-700 bg-white px-2.5 py-1 rounded-full border border-emerald-200 shadow-xs">
+                    Auto-set from lowest variant
+                  </span>
                 </div>
-              </div>
-
-              {variants.length > 0 && (
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                  Base price is shown on the food menu. Customers can also choose portion variants (like Half / Full) below.
+              ) : (
+                <div className="relative">
+                  <label className="block text-xs text-gray-600 mb-1">Item price</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={basePrice}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
+                        const parts = value.split('.')
+                        const cleanedValue = parts.length > 2
+                          ? parts[0] + '.' + parts.slice(1).join('')
+                          : value
+                        setBasePrice(cleanedValue)
+                      }}
+                      onFocus={(e) => {
+                        if (e.target.value.startsWith('\u20B9')) {
+                          e.target.value = e.target.value.replace(/[\u20B9\s]+/g, '')
+                        }
+                      }}
+                      placeholder="Enter price"
+                      className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
+                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
+                    <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
+                      <EditIcon className="w-4 h-4 text-gray-500" />
+                    </button>
+                  </div>
                 </div>
               )}
 

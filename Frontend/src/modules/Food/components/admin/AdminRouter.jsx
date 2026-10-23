@@ -97,6 +97,7 @@ const DiningRequests = lazy(() => import("@food/pages/admin/system/DiningRequest
 const CustomizationSettings = lazy(() => import("@food/pages/admin/system/CustomizationSettings"));
 const ArchivedAccounts = lazy(() => import("@food/pages/admin/system/ArchivedAccounts"));
 const RestaurantSettings = lazy(() => import("@food/pages/admin/restaurant/RestaurantSettings"));
+const RestaurantEarnings = lazy(() => import("@food/pages/admin/restaurant/RestaurantEarnings"));
 const EditRestaurant = lazy(() => import("@food/pages/admin/restaurant/EditRestaurant"));
 const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"));
 const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"));
@@ -221,6 +222,8 @@ export default function AdminRouter() {
             <Route path="restaurants/complaints" element={<RestaurantComplaints />} />
             <Route path="restaurants/reviews" element={<RestaurantReviews />} />
             <Route path="restaurants/settings" element={<RestaurantSettings />} />
+            <Route path="restaurants/earnings" element={<RestaurantEarnings />} />
+            <Route path="restaurant-earnings" element={<RestaurantEarnings />} />
 
             {/* FOOD & CATEGORY MANAGEMENT */}
             <Route path="categories" element={<Category />} />

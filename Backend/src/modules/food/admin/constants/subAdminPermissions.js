@@ -20,6 +20,7 @@ export const SUB_ADMIN_PERMISSION_MODULES = [
   { key: 'restaurant_reviews', label: 'Restaurant Reviews', pathPrefixes: ['/admin/food/restaurants/reviews'] },
   { key: 'restaurant_complaints', label: 'Restaurant Complaints', pathPrefixes: ['/admin/food/restaurants/complaints'] },
   { key: 'restaurant_settings', label: 'Restaurant Settings', pathPrefixes: ['/admin/food/restaurants/settings'] },
+  { key: 'restaurant_earning', label: 'Restaurant Earning', pathPrefixes: ['/admin/food/restaurants/earnings'] },
   { key: 'restaurant_onboarding_pricing', label: 'Onboarding Pricing', pathPrefixes: ['/admin/food/onboarding-pricing'] },
   { key: 'orders', label: 'Orders', pathPrefixes: ['/admin/food/orders'] },
   { key: 'order_detect_delivery', label: 'Order Detect Delivery', pathPrefixes: ['/admin/food/order-detect-delivery'] },
