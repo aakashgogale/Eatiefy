@@ -945,6 +945,32 @@ export default function Under250({ isTabActive = true }) {
     setItemDetailQuantity(existingQuantity > 0 ? existingQuantity : 1)
   }, [selectedVariantId])
 
+  const getDishQuantity = (item, preferredVariantId = "") => {
+    if (preferredVariantId) {
+      const variant = getVariantForDish(item, preferredVariantId)
+      const lineItemId = getLineItemIdForDish(item, variant)
+      return quantities[lineItemId] || 0
+    }
+    if (hasFoodVariants(item)) {
+      const variants = getFoodVariants(item)
+      return variants.reduce((sum, v) => {
+        const lineItemId = getLineItemIdForDish(item, v)
+        return sum + (quantities[lineItemId] || 0)
+      }, 0)
+    }
+    const lineItemId = getLineItemIdForDish(item, null)
+    return quantities[lineItemId] || 0
+  }
+
+  const getSoleActiveVariant = (item) => {
+    if (!hasFoodVariants(item)) return null
+    const variants = getFoodVariants(item)
+    const active = variants.filter(
+      (v) => (quantities[getLineItemIdForDish(item, v)] || 0) > 0
+    )
+    return active.length === 1 ? active[0] : null
+  }
+
   useEffect(() => {
     if (!showSortPopup) return
     setDraftSelectedSort(selectedSort)
@@ -1620,8 +1646,7 @@ export default function Under250({ isTabActive = true }) {
                     >
                        {restaurant.menuItems.map((item, itemIndex) => {
                         const defaultVariant = getDefaultFoodVariant(item)
-                        const lineItemId = getLineItemIdForDish(item, defaultVariant)
-                        const quantity = quantities[lineItemId] || 0
+                        const quantity = getDishQuantity(item)
                         const isOffline = shouldShowGrayscale || isRestaurantOffline
                         return (
                           <motion.div
@@ -1687,8 +1712,11 @@ export default function Under250({ isTabActive = true }) {
                               </div>
                               <div className="flex items-center justify-between">
                                 <div>
+                                  {hasFoodVariants(item) && (
+                                    <p className="text-[10px] md:text-xs font-medium text-gray-500 dark:text-gray-400">Starting from</p>
+                                  )}
                                   <p className="text-base md:text-lg lg:text-xl xl:text-2xl font-bold text-gray-900 dark:text-white">
-                                    {RUPEE_SYMBOL}{Math.round(item.price)}
+                                    {RUPEE_SYMBOL}{Math.round(getFoodDisplayPrice(item))}
                                   </p>
                                   {item.bestPrice && (
                                     <p className="text-xs md:text-sm lg:text-base text-gray-500 dark:text-gray-400">Best price</p>
@@ -1703,8 +1731,12 @@ export default function Under250({ isTabActive = true }) {
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation()
-                                        const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, quantity - 1, e, restaurant.name, defaultVariant, restaurant)
+                                        const sole = getSoleActiveVariant(item)
+                                        if (hasFoodVariants(item) && !sole) {
+                                          handleItemClick(item, restaurant)
+                                        } else {
+                                          updateItemQuantity(item, quantity - 1, e, restaurant.name, sole || defaultVariant, restaurant)
+                                        }
                                       }}
                                       className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center hover:bg-black/20 rounded transition-colors text-white"
                                     >
@@ -1717,8 +1749,12 @@ export default function Under250({ isTabActive = true }) {
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation()
-                                        const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, quantity + 1, e, restaurant.name, defaultVariant, restaurant)
+                                        const sole = getSoleActiveVariant(item)
+                                        if (hasFoodVariants(item) && !sole) {
+                                          handleItemClick(item, restaurant)
+                                        } else {
+                                          updateItemQuantity(item, quantity + 1, e, restaurant.name, sole || defaultVariant, restaurant)
+                                        }
                                       }}
                                       className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center hover:bg-black/20 rounded transition-colors text-white"
                                     >
@@ -1738,11 +1774,11 @@ export default function Under250({ isTabActive = true }) {
                                       onClick={(e) => {
                                         e.stopPropagation()
                                         if (!isOffline) {
-                                          if (hasFoodVariants(item)) {
+                                          const sole = getSoleActiveVariant(item)
+                                          if (hasFoodVariants(item) && !sole) {
                                             handleItemClick(item, restaurant)
                                           } else {
-                                            const defaultVariant = getDefaultFoodVariant(item)
-                                            updateItemQuantity(item, 1, e, restaurant.name, defaultVariant, restaurant)
+                                            updateItemQuantity(item, 1, e, restaurant.name, sole || defaultVariant, restaurant)
                                           }
                                         }
                                       }}

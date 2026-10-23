@@ -8,7 +8,7 @@ import {
   applyOtherPriceToFood,
   loadActivePricingRules,
 } from '../../admin/services/otherPrice.service.js';
-import { serializeFoodVariants, toRestaurantFacingFood } from '../../admin/services/foodVariant.service.js';
+import { getFoodDisplayPrice, serializeFoodVariants, toRestaurantFacingFood } from '../../admin/services/foodVariant.service.js';
 import { toPublicAssetUrl } from '../../../../services/storage.service.js';
 
 /**
@@ -18,7 +18,7 @@ import { toPublicAssetUrl } from '../../../../services/storage.service.js';
  */
 const toRestaurantOwnedPricedFood = (rawFood) => {
   const food = toRestaurantFacingFood(rawFood);
-  const basePrice = Number(food?.price) || 0;
+  const basePrice = getFoodDisplayPrice(food) || Number(food?.price) || 0;
   const variants = serializeFoodVariants(food?.variants || food?.variations || []).map(
     (variant) => {
       const variantBase = Number(variant.price) || 0;

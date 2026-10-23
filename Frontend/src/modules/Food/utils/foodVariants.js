@@ -26,14 +26,19 @@ export const hasFoodVariants = (item = {}) => getFoodVariants(item).length > 0
 export const getDefaultFoodVariant = (item = {}) => getFoodVariants(item)[0] || null
 
 export const getFoodDisplayPrice = (item = {}) => {
+  const variants = getFoodVariants(item)
+  if (variants.length > 0) {
+    const variantPrices = variants
+      .map((variant) => Number(variant.price))
+      .filter((price) => Number.isFinite(price) && price > 0)
+    if (variantPrices.length > 0) {
+      return Math.min(...variantPrices)
+    }
+  }
+
   const price = Number(item?.price ?? item?.basePrice)
   if (Number.isFinite(price) && price > 0) {
     return price
-  }
-
-  const variants = getFoodVariants(item)
-  if (variants.length > 0) {
-    return Math.min(...variants.map((variant) => Number(variant.price) || 0))
   }
 
   return 0

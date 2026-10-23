@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { buildZoneServiceabilityClause, resolveServiceZone } from '../../shared/zoneLocation.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
-import { getFoodDisplayOtherPrice, getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
+import { getFoodDisplayOtherPrice, getFoodDisplayPrice, serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
 import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
 import { toPublicAssetUrl } from '../../../../services/storage.service.js';
@@ -196,8 +196,10 @@ export async function listPublicFoods(query = {}) {
                 description: food.description || '',
                 // Promo items are already priced with live pricing rules (selling price).
                 price: isEatiefyPromo ? food.price : getFoodDisplayPrice(food),
+                basePrice: Number(food.price) || getFoodDisplayPrice(food),
                 otherPrice: getFoodDisplayOtherPrice(food),
-                ...(isEatiefyPromo ? { variants: food.variants } : {}),
+                variants: serializeFoodVariants(food.variants || food.variations || []),
+                variations: serializeFoodVariants(food.variants || food.variations || []),
                 image: toPublicAssetUrl(food.image),
                 foodType: food.foodType || 'Non-Veg',
                 isAvailable: food.isAvailable !== false,

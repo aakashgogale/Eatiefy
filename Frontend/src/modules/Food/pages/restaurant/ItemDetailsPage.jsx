@@ -865,10 +865,14 @@ export default function ItemDetailsPage() {
     }
 
     const hasVariants = normalizedVariants.length > 0
-    const parsedBasePrice = Number(basePrice)
-    if (!Number.isFinite(parsedBasePrice) || parsedBasePrice < 0) {
-      toast.error("Please enter a valid base price")
-      return
+    let parsedBasePrice = Number(basePrice)
+    if (!Number.isFinite(parsedBasePrice) || parsedBasePrice <= 0) {
+      if (hasVariants) {
+        parsedBasePrice = Math.min(...normalizedVariants.map((v) => v.price))
+      } else {
+        toast.error("Please enter a valid base price")
+        return
+      }
     }
 
     const variantPayload = normalizedVariants.map((variant) => ({

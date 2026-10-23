@@ -597,7 +597,7 @@ export default function FoodsList() {
       .filter((variant) => variant.id || variant.name || variant.price)
 
     const hasVariants = normalizedVariants.length > 0
-    const parsedPrice = Number(foodForm.price)
+    let parsedPrice = Number(foodForm.price)
 
     if (normalizedVariants.some((variant) => !variant.name)) {
       toast.error("Each variant must have a name")
@@ -610,8 +610,12 @@ export default function FoodsList() {
     }
 
     if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      toast.error("Base price must be greater than 0")
-      return
+      if (hasVariants) {
+        parsedPrice = Math.min(...normalizedVariants.map((v) => v.price))
+      } else {
+        toast.error("Base price must be greater than 0")
+        return
+      }
     }
 
     // Empty clears the override; variants are priced individually, so none applies there.

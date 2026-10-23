@@ -3883,7 +3883,13 @@ export default function Home() {
                                   >
                                     <button
                                       type="button"
-                                      onClick={(e) => handleDecreaseQuantity(dish, e)}
+                                      onClick={(e) => {
+                                        if (hasVariants) {
+                                          setSelectedDishForModal(dish);
+                                        } else {
+                                          handleDecreaseQuantity(dish, e);
+                                        }
+                                      }}
                                       className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75 text-[#24963F]"
                                     >
                                       <Minus className="h-3.5 w-3.5" strokeWidth={3.5} />
@@ -3893,7 +3899,13 @@ export default function Home() {
                                     </span>
                                     <button
                                       type="button"
-                                      onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                      onClick={(e) => {
+                                        if (hasVariants) {
+                                          setSelectedDishForModal(dish);
+                                        } else {
+                                          handleIncreaseQuantity(dish, e);
+                                        }
+                                      }}
                                       className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75 text-[#24963F]"
                                     >
                                       <Plus className="h-3.5 w-3.5" strokeWidth={3.5} />
@@ -3907,7 +3919,11 @@ export default function Home() {
                                       // added one AND opened the popup, whose "Add to Cart"
                                       // then made it two.
                                       e.stopPropagation();
-                                      handleIncreaseQuantity(dish, e);
+                                      if (hasVariants) {
+                                        setSelectedDishForModal(dish);
+                                      } else {
+                                        handleIncreaseQuantity(dish, e);
+                                      }
                                     }}
                                     className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-[#2e2e2e] shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200/90 dark:border-gray-700/80 hover:bg-gray-50 z-10"
                                   >
@@ -3938,6 +3954,11 @@ export default function Home() {
                                 {/* Price */}
                                 <div className="flex items-center justify-between w-full mt-1">
                                   <div className="flex items-center gap-1.5">
+                                    {hasVariants && (
+                                      <span className="text-[9.5px] font-semibold text-gray-500 dark:text-gray-400">
+                                        Starting from
+                                      </span>
+                                    )}
                                     <span className="text-sm font-black text-gray-900 dark:text-white">
                                       ₹{dish.price}
                                     </span>

@@ -103,14 +103,19 @@ export const getFoodDisplayPrice = (value = {}) => {
     const adminPrice = getFoodAdminPrice(value);
     if (adminPrice != null) return adminPrice;
 
+    const variants = serializeFoodVariants(value?.variants || value?.variations || []);
+    if (variants.length > 0) {
+        const variantPrices = variants
+            .map((entry) => Number(entry.price))
+            .filter((p) => Number.isFinite(p) && p > 0);
+        if (variantPrices.length > 0) {
+            return Math.min(...variantPrices);
+        }
+    }
+
     const price = Number(value?.price);
     if (Number.isFinite(price) && price > 0) {
         return price;
-    }
-
-    const variants = serializeFoodVariants(value?.variants || value?.variations || []);
-    if (variants.length > 0) {
-        return Math.min(...variants.map((entry) => Number(entry.price) || 0));
     }
 
     return 0;
