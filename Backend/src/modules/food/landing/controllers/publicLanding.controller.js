@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { getPublicGourmetRestaurants } from '../services/gourmet.service.js';
 import { getLandingSettings } from '../services/landingSettings.service.js';
 import { FoodHeroBanner } from '../models/heroBanner.model.js';
@@ -6,6 +7,7 @@ import { FoodDiningBanner } from '../models/diningBanner.model.js';
 import { FoodExploreIcon } from '../models/exploreIcon.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { sendResponse } from '../../../../utils/response.js';
+import { resolveServiceZone, buildZoneServiceabilityClause } from '../../shared/zoneLocation.js';
 
 /** Public hero banners for user home: active only, sorted, with linkedRestaurants populated for click-through */
 /** Shared by the standalone route and the aggregated /public/app-config payload. */
@@ -165,58 +167,112 @@ export const getPublicGourmetController = async (req, res, next) => {
     }
 };
 
+const RESTAURANT_SELECT =
+    'restaurantName area city profileImage coverImages menuImages slug rating totalRatings cuisines pureVegRestaurant pureVeganRestaurant isAcceptingOrders isActive openingTime closingTime openDays zoneId location estimatedDeliveryTime estimatedDeliveryTimeMinutes offer';
+
 /** Shared by the standalone route and the aggregated /public/app-config payload. */
 export const loadPublicLandingSettings = async (zoneId) => {
-    {
-        let settings = await getLandingSettings(zoneId);
-        let globalSettings = null;
-        
-        if (zoneId) {
-            globalSettings = await getLandingSettings(null);
-            // Merge global settings into zone settings for any missing fields
-            settings = {
-                ...globalSettings,
-                ...settings,
-                exploreMoreHeading: settings.exploreMoreHeading && settings.exploreMoreHeading !== 'Explore more' ? settings.exploreMoreHeading : globalSettings?.exploreMoreHeading,
-                recommendedRestaurantIds: settings.recommendedRestaurantIds && settings.recommendedRestaurantIds.length > 0 ? settings.recommendedRestaurantIds : (globalSettings?.recommendedRestaurantIds || []),
-                festBannerImageUrl: settings.festBannerImageUrl ? settings.festBannerImageUrl : globalSettings?.festBannerImageUrl,
-                festBannerTopColor: settings.festBannerTopColor ? settings.festBannerTopColor : globalSettings?.festBannerTopColor,
-            };
-        }
+    let settings = await getLandingSettings(zoneId);
+    let globalSettings = null;
 
-        const ids = settings?.recommendedRestaurantIds || [];
-        let recommendedRestaurants = [];
-        if (Array.isArray(ids) && ids.length > 0) {
-            const query = { _id: { $in: ids }, status: 'approved' };
-            if (zoneId) {
-                query.zoneId = zoneId;
-            }
-            recommendedRestaurants = await FoodRestaurant.find(query)
-                .select('restaurantName area city profileImage coverImages menuImages slug rating cuisines pureVegRestaurant isAcceptingOrders isActive openingTime closingTime openDays zoneId')
-                .lean();
-        }
-
-        // If zone has no curated recommended restaurants, dynamically pick top-rated approved restaurants in that zone
-        if (zoneId && recommendedRestaurants.length === 0) {
-            recommendedRestaurants = await FoodRestaurant.find({
-                zoneId,
-                status: 'approved',
-                isActive: { $ne: false },
-                isAcceptingOrders: { $ne: false },
-            })
-                .sort({ rating: -1, totalRatings: -1 })
-                .limit(10)
-                .select('restaurantName area city profileImage coverImages menuImages slug rating cuisines pureVegRestaurant isAcceptingOrders isActive openingTime closingTime openDays zoneId')
-                .lean();
-        }
-
-        const payload = {
+    if (zoneId) {
+        globalSettings = await getLandingSettings(null);
+        // Merge global settings into zone settings for any missing fields
+        settings = {
+            ...globalSettings,
             ...settings,
-            recommendedRestaurantIds: undefined,
-            recommendedRestaurants
+            exploreMoreHeading:
+                settings.exploreMoreHeading && settings.exploreMoreHeading !== 'Explore more'
+                    ? settings.exploreMoreHeading
+                    : globalSettings?.exploreMoreHeading,
+            recommendedRestaurantIds:
+                settings.recommendedRestaurantIds && settings.recommendedRestaurantIds.length > 0
+                    ? settings.recommendedRestaurantIds
+                    : globalSettings?.recommendedRestaurantIds || [],
+            festBannerImageUrl: settings.festBannerImageUrl ? settings.festBannerImageUrl : globalSettings?.festBannerImageUrl,
+            festBannerTopColor: settings.festBannerTopColor ? settings.festBannerTopColor : globalSettings?.festBannerTopColor,
         };
-        return payload;
     }
+
+    const ids = settings?.recommendedRestaurantIds || [];
+    let serviceZone = null;
+    if (zoneId && mongoose.Types.ObjectId.isValid(String(zoneId))) {
+        serviceZone = await resolveServiceZone({ zoneId: String(zoneId) });
+    }
+    const zoneClause = serviceZone
+        ? buildZoneServiceabilityClause(serviceZone)
+        : (zoneId && mongoose.Types.ObjectId.isValid(String(zoneId))
+            ? { zoneId: new mongoose.Types.ObjectId(String(zoneId)) }
+            : null);
+
+    let recommendedRestaurants = [];
+    const validObjectIds = Array.isArray(ids)
+        ? ids
+            .filter((id) => mongoose.Types.ObjectId.isValid(String(id)))
+            .map((id) => new mongoose.Types.ObjectId(String(id)))
+        : [];
+
+    if (validObjectIds.length > 0) {
+        const query = { _id: { $in: validObjectIds }, status: 'approved' };
+        if (zoneClause) {
+            query.$and = [zoneClause];
+        }
+        recommendedRestaurants = await FoodRestaurant.find(query)
+            .select(RESTAURANT_SELECT)
+            .lean();
+
+        // Preserve admin-curated order
+        const idOrderMap = new Map(validObjectIds.map((id, idx) => [String(id), idx]));
+        recommendedRestaurants.sort((a, b) => {
+            const idxA = idOrderMap.has(String(a._id)) ? idOrderMap.get(String(a._id)) : 999;
+            const idxB = idOrderMap.has(String(b._id)) ? idOrderMap.get(String(b._id)) : 999;
+            return idxA - idxB;
+        });
+    }
+
+    // Dynamic supplement: Ensure at least 10 high-quality approved restaurants are returned whenever available
+    const DESIRED_COUNT = 10;
+    if (recommendedRestaurants.length < DESIRED_COUNT) {
+        const existingIds = new Set(recommendedRestaurants.map((r) => String(r._id)));
+        const existingNames = new Set(
+            recommendedRestaurants
+                .map((r) => (r.restaurantName || '').toLowerCase().trim())
+                .filter(Boolean)
+        );
+
+        const fallbackFilter = {
+            status: 'approved',
+            isAcceptingOrders: { $ne: false },
+        };
+        if (existingIds.size > 0) {
+            fallbackFilter._id = { $nin: Array.from(existingIds).map((id) => new mongoose.Types.ObjectId(id)) };
+        }
+        if (zoneClause) {
+            fallbackFilter.$and = [zoneClause];
+        }
+
+        const additionalCandidates = await FoodRestaurant.find(fallbackFilter)
+            .sort({ rating: -1, totalRatings: -1, createdAt: -1 })
+            .limit(DESIRED_COUNT * 2)
+            .select(RESTAURANT_SELECT)
+            .lean();
+
+        for (const candidate of additionalCandidates) {
+            if (recommendedRestaurants.length >= DESIRED_COUNT) break;
+            const normName = (candidate.restaurantName || '').toLowerCase().trim();
+            // Avoid adding identical restaurant name duplicate cards
+            if (normName && existingNames.has(normName)) continue;
+            if (normName) existingNames.add(normName);
+            recommendedRestaurants.push(candidate);
+        }
+    }
+
+    const payload = {
+        ...settings,
+        recommendedRestaurantIds: recommendedRestaurants.map((r) => String(r._id)),
+        recommendedRestaurants,
+    };
+    return payload;
 };
 
 export const getPublicLandingSettingsController = async (req, res, next) => {

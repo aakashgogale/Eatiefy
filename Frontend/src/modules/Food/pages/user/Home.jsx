@@ -3157,26 +3157,13 @@ export default function Home() {
       : [];
 
     const currentZoneRestaurants = Array.isArray(restaurantsData) ? restaurantsData : [];
-    const currentRestaurantIdSet = new Set(
-      currentZoneRestaurants.flatMap((r) => [
-        String(r.id || ""),
-        String(r._id || ""),
-        String(r.mongoId || ""),
-        String(r.restaurantId || ""),
-        String(r.slug || ""),
-      ].filter(Boolean))
-    );
 
-    // Primary source: restaurants returned by landing settings API (already admin-selected).
+    // Primary source: restaurants returned by landing settings API (already curated / zone-resolved).
     const fromSettingsMapped = fromSettings
       .filter((restaurant) => {
-        const rId = String(restaurant?._id || restaurant?.id || restaurant?.restaurantId || "");
-        const rSlug = String(restaurant?.slug || "");
-        if (currentZoneRestaurants.length > 0) {
-          return currentRestaurantIdSet.has(rId) || (rSlug && currentRestaurantIdSet.has(rSlug));
-        }
-        if (zoneId && restaurant?.zoneId) {
-          return String(restaurant.zoneId) === String(zoneId);
+        if (!restaurant) return false;
+        if (zoneId && restaurant?.zoneId && String(restaurant.zoneId) !== String(zoneId)) {
+          return false;
         }
         return true;
       })
@@ -3215,32 +3202,50 @@ export default function Home() {
           rating: Number(liveMatch?.rating || restaurant?.rating) || 0,
           distance: distanceInfo?.label || "",
           distanceInKm: distanceInfo?.km ?? null,
-          deliveryTime: liveMatch?.deliveryTime || "",
+          deliveryTime: liveMatch?.deliveryTime || (restaurant?.estimatedDeliveryTime || "25-30 mins"),
           image: normalizeImageUrl(image) || foodImages[0],
           images: imageCandidates.length > 0 ? imageCandidates : [foodImages[0]],
           slug: restaurant?.slug || restaurant?.restaurantId || restaurantId,
-          offer: liveMatch?.offer || null,
+          offer: liveMatch?.offer || restaurant?.offer || null,
           pureVegRestaurant: restaurant?.pureVegRestaurant === true,
-          isActive: liveMatch?.isActive ?? true,
-          isAcceptingOrders: liveMatch?.isAcceptingOrders ?? true,
+          isActive: liveMatch?.isActive ?? (restaurant?.isActive !== false),
+          isAcceptingOrders: liveMatch?.isAcceptingOrders ?? (restaurant?.isAcceptingOrders !== false),
+          openingTime: liveMatch?.openingTime || restaurant?.openingTime,
+          closingTime: liveMatch?.closingTime || restaurant?.closingTime,
+          openDays: liveMatch?.openDays || restaurant?.openDays,
+          location: liveMatch?.location || restaurant?.location,
         };
       });
 
-    // Keep admin-selected order when IDs exist.
+    // Keep admin-selected order when IDs exist, while ensuring all recommended restaurants from settings remain included
     let list = [];
     if (fromSettingsMapped.length > 0) {
-      list = hasIds
-        ? idsInOrder
-          .map((id) =>
-            fromSettingsMapped.find(
-              (restaurant) => String(restaurant.mongoId) === id || String(restaurant.id) === id,
-            ),
-          )
-          .filter(Boolean)
-        : fromSettingsMapped;
+      if (hasIds) {
+        const matched = [];
+        const seenIds = new Set();
+        for (const id of idsInOrder) {
+          const found = fromSettingsMapped.find(
+            (r) => String(r.mongoId) === id || String(r.id) === id
+          );
+          if (found && !seenIds.has(String(found.mongoId || found.id))) {
+            matched.push(found);
+            seenIds.add(String(found.mongoId || found.id));
+          }
+        }
+        for (const r of fromSettingsMapped) {
+          const rKey = String(r.mongoId || r.id);
+          if (!seenIds.has(rKey)) {
+            matched.push(r);
+            seenIds.add(rKey);
+          }
+        }
+        list = matched;
+      } else {
+        list = fromSettingsMapped;
+      }
     }
 
-    // Dynamic fallback: if no admin-curated picks exist for this specific location,
+    // Dynamic fallback: if no picks exist from settings for this location,
     // dynamically recommend the highest-rated approved restaurants in this location!
     if (list.length === 0 && currentZoneRestaurants.length > 0) {
       list = [...currentZoneRestaurants]
@@ -3248,9 +3253,20 @@ export default function Home() {
         .slice(0, 10);
     }
 
-    return list
+    // Deduplicate by restaurant identity
+    const uniqueList = [];
+    const seen = new Set();
+    for (const r of list) {
+      const key = String(r.mongoId || r.id || r.slug);
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueList.push(r);
+      }
+    }
+
+    return uniqueList
       .filter(matchesVegMode)
-      .slice(0, 12);
+      .slice(0, 15);
   }, [
     recommendedRestaurantIds,
     recommendedRestaurantsFromSettings,
@@ -4064,6 +4080,8 @@ export default function Home() {
                       const restaurantName = getRestaurantDisplayName(restaurant) || "Restaurant";
                       const restaurantSlug =
                         restaurant.slug ||
+                        restaurant.mongoId ||
+                        restaurant.id ||
                         restaurantName.toLowerCase().replace(/\s+/g, "-");
 
                       const isFav = typeof isFavorite === "function" ? isFavorite(restaurantSlug) : false;

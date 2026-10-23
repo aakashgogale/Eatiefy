@@ -1608,26 +1608,51 @@ export default function Cart() {
       return calculateDistance(rLat, rLng, dLat, dLng)
     })()
 
-    const ranges = Array.isArray(feeSettings.deliveryFeeRanges) ? [...feeSettings.deliveryFeeRanges] : []
-    if (ranges.length > 0 && Number.isFinite(distanceKm)) {
-      const sortedRanges = ranges.sort((a, b) => Number(a.min) - Number(b.min))
-      for (let i = 0; i < sortedRanges.length; i += 1) {
-        const range = sortedRanges[i]
-        const min = Number(range.min)
-        const max = Number(range.max)
-        const fee = Number(range.fee)
-        const isLastRange = i === sortedRanges.length - 1
-        const inRange = isLastRange
-          ? distanceKm >= min && distanceKm <= max
-          : distanceKm >= min && distanceKm < max
+    const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
+      ? feeSettings.deliveryFeeRanges
+          .map((r) => ({
+            min: Number(r?.min),
+            max: Number(r?.max),
+            fee: Number(r?.fee),
+          }))
+          .filter(
+            (r) =>
+              Number.isFinite(r.min) &&
+              Number.isFinite(r.max) &&
+              Number.isFinite(r.fee) &&
+              r.fee >= 0,
+          )
+          .sort((a, b) => a.min - b.min)
+      : []
 
-        if (inRange) return fee
+    const rawBaseFee = Number(feeSettings.deliveryFee)
+    const defaultBaseFee =
+      Number.isFinite(rawBaseFee) && rawBaseFee > 0
+        ? rawBaseFee
+        : ranges.length > 0 && ranges[0].fee > 0
+          ? ranges[0].fee
+          : 25
+
+    if (ranges.length > 0 && Number.isFinite(distanceKm) && distanceKm >= 0) {
+      const firstRange = ranges[0]
+      const lastRange = ranges[ranges.length - 1]
+
+      if (distanceKm < firstRange.min) return firstRange.fee
+      if (distanceKm >= lastRange.max) return lastRange.fee
+
+      for (let i = 0; i < ranges.length; i += 1) {
+        const r = ranges[i]
+        const isLast = i === ranges.length - 1
+        const inRange = isLast
+          ? distanceKm >= r.min && distanceKm <= r.max
+          : distanceKm >= r.min && distanceKm < r.max
+        if (inRange) return r.fee
+        if (distanceKm < r.min) return r.fee
       }
-
-      return Number(feeSettings.deliveryFee || 0)
+      return lastRange.fee
     }
 
-    return Number(feeSettings.deliveryFee || 0)
+    return defaultBaseFee
   })()
   const deliveryFee = pricing != null ? (pricing.deliveryFee ?? 0) : fallbackDeliveryFee
   const deliveryFeeBreakdown = pricing?.deliveryFeeBreakdown || null

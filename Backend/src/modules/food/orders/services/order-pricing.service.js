@@ -122,49 +122,81 @@ export async function calculateOrderPricing(userId, dto) {
     deliveryFee = 0;
   } else {
     const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
-      ? [...feeSettings.deliveryFeeRanges]
+      ? feeSettings.deliveryFeeRanges
+          .map((r) => ({
+            min: Number(r?.min),
+            max: Number(r?.max),
+            fee: Number(r?.fee),
+          }))
+          .filter(
+            (r) =>
+              Number.isFinite(r.min) &&
+              Number.isFinite(r.max) &&
+              Number.isFinite(r.fee) &&
+              r.fee >= 0,
+          )
+          .sort((a, b) => a.min - b.min)
       : [];
-    if (ranges.length > 0) {
-      ranges.sort((a, b) => Number(a.min) - Number(b.min));
-      let matched = null;
-      for (let i = 0; i < ranges.length; i += 1) {
-        const r = ranges[i] || {};
-        const min = Number(r.min);
-        const max = Number(r.max);
-        const fee = Number(r.fee);
-        if (
-          !Number.isFinite(min) ||
-          !Number.isFinite(max) ||
-          !Number.isFinite(fee)
-        ) {
-          continue;
-        }
-        const isLast = i === ranges.length - 1;
-        if (!Number.isFinite(distanceKm)) {
-          continue;
-        }
-        const inRange = isLast
-          ? distanceKm >= min && distanceKm <= max
-          : distanceKm >= min && distanceKm < max;
-        if (inRange) {
-          matched = fee;
-          if (Number.isFinite(distanceKm)) {
-            deliveryFeeBreakdown = {
-              source: "distance",
-              distanceKm,
-              minKm: min,
-              maxKm: max,
-              fee,
-            };
+
+    const rawBaseFee = Number(feeSettings.deliveryFee);
+    const defaultBaseFee =
+      Number.isFinite(rawBaseFee) && rawBaseFee > 0
+        ? rawBaseFee
+        : ranges.length > 0 && ranges[0].fee > 0
+          ? ranges[0].fee
+          : 25;
+
+    if (ranges.length > 0 && Number.isFinite(distanceKm) && distanceKm >= 0) {
+      const firstRange = ranges[0];
+      const lastRange = ranges[ranges.length - 1];
+
+      if (distanceKm < firstRange.min) {
+        deliveryFee = firstRange.fee;
+        deliveryFeeBreakdown = {
+          source: "distance",
+          distanceKm,
+          minKm: firstRange.min,
+          maxKm: firstRange.max,
+          fee: firstRange.fee,
+        };
+      } else if (distanceKm >= lastRange.max) {
+        deliveryFee = lastRange.fee;
+        deliveryFeeBreakdown = {
+          source: "distance",
+          distanceKm,
+          minKm: lastRange.min,
+          maxKm: lastRange.max,
+          fee: lastRange.fee,
+        };
+      } else {
+        let matched = null;
+        for (let i = 0; i < ranges.length; i += 1) {
+          const r = ranges[i];
+          const isLast = i === ranges.length - 1;
+          const inRange = isLast
+            ? distanceKm >= r.min && distanceKm <= r.max
+            : distanceKm >= r.min && distanceKm < r.max;
+          if (inRange) {
+            matched = r;
+            break;
           }
-          break;
+          if (distanceKm < r.min) {
+            matched = r;
+            break;
+          }
         }
+        const resolved = matched || lastRange;
+        deliveryFee = resolved.fee;
+        deliveryFeeBreakdown = {
+          source: "distance",
+          distanceKm,
+          minKm: resolved.min,
+          maxKm: resolved.max,
+          fee: resolved.fee,
+        };
       }
-      deliveryFee = Number.isFinite(matched)
-        ? matched
-        : Number(feeSettings.deliveryFee || 0);
     } else {
-      deliveryFee = Number(feeSettings.deliveryFee || 0);
+      deliveryFee = defaultBaseFee;
     }
   }
 
