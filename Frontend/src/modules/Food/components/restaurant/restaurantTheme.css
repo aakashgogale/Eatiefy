@@ -189,6 +189,31 @@
 }
 
 /* --------------------------------------------------------------------------
+   Compact sizing for POS handhelds (iMin Swift 2 etc.) and very narrow phones.
+   The panel is sized for a ~390px phone; on these screens cards, tabs and
+   buttons overflowed. Tailwind spacing and text are rem-based, so a smaller
+   root font-size shrinks the whole panel evenly. `rt-panel` is set on <html>
+   only while the restaurant panel is mounted (RestaurantRouter).
+   -------------------------------------------------------------------------- */
+html.rt-panel[data-pos-device] {
+  font-size: 14px;
+}
+
+@media (max-width: 359px) {
+  html.rt-panel {
+    font-size: 14px;
+  }
+}
+
+/* No sideways page scroll: whatever is still too wide is clipped, not pushed
+   off-screen. `clip` (unlike `hidden`) keeps sticky headers working. */
+html.rt-panel[data-pos-device] body,
+html.rt-panel[data-pos-device] .restaurant-theme {
+  overflow-x: clip;
+  max-width: 100vw;
+}
+
+/* --------------------------------------------------------------------------
    POS / handheld terminals (e.g. iMin) — set by index.html when the device is
    a touch-only handheld that reports a >= 768px width, or identifies itself as
    an iMin terminal. These devices need the full PHONE layout, not the tablet

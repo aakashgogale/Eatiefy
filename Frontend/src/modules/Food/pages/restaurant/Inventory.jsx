@@ -15,7 +15,8 @@ import {
   ChevronRight,
   X,
   ThumbsUp,
-  Pencil
+  Pencil,
+  ArrowUpDown
 } from "lucide-react"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
@@ -768,6 +769,9 @@ export default function Inventory() {
   })
   const [searchQuery, setSearchQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
+  const [sequenceOpen, setSequenceOpen] = useState(false)
+  const [sequenceDraft, setSequenceDraft] = useState([])
+  const [savingSequence, setSavingSequence] = useState(false)
   const [selectedFilter, setSelectedFilter] = useState("all")
   const [isLoading, setIsLoading] = useState(false)
   const [loadingInventory, setLoadingInventory] = useState(false)
@@ -1018,6 +1022,8 @@ export default function Inventory() {
             
             return {
               id: section.id || `category-${sectionIndex}`,
+              // Key the backend matches the saved sequence against.
+              sequenceKey: section.categoryId || String(section.name || "").toLowerCase().trim(),
               name: section.name || "Unnamed Category",
               description: section.description || "",
               itemCount: itemCount,
@@ -1573,6 +1579,41 @@ export default function Inventory() {
 
   const hasActiveTools = searchQuery.trim().length > 0 || selectedFilter !== "all"
 
+  const openSequence = () => {
+    setSequenceDraft(categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      itemCount: category.itemCount || (category.items?.length || 0),
+      sequenceKey: category.sequenceKey || String(category.name || "").toLowerCase().trim(),
+    })))
+    setSequenceOpen(true)
+  }
+
+  const moveSequenceEntry = (index, delta) => {
+    setSequenceDraft((prev) => {
+      const target = index + delta
+      if (target < 0 || target >= prev.length) return prev
+      const next = [...prev]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  const saveSequence = async () => {
+    try {
+      setSavingSequence(true)
+      await restaurantAPI.updateCategoryOrder(sequenceDraft.map((entry) => entry.sequenceKey))
+      const position = new Map(sequenceDraft.map((entry, index) => [entry.id, index]))
+      setCategories((prev) => [...prev].sort((a, b) => (position.get(a.id) ?? prev.length) - (position.get(b.id) ?? prev.length)))
+      setSequenceOpen(false)
+      toast.success("Category sequence saved. Customers will see the menu in this order.")
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Could not save the category sequence")
+    } finally {
+      setSavingSequence(false)
+    }
+  }
+
   // Calculate out of stock count for a category
   const getOutOfStockCount = (category) => {
     return category.items.filter(item => !item.inStock).length
@@ -2100,6 +2141,17 @@ export default function Inventory() {
                   <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] ring-2 ring-white" />
                 )}
               </button>
+
+              {activeTab !== "add-ons" && categories.length > 1 && (
+                <button
+                  type="button"
+                  onClick={openSequence}
+                  className="flex h-12 items-center justify-center gap-2 rounded-[20px] border border-[#e7d5e0] bg-white px-4 text-sm font-semibold text-[#1B5E3F] transition-colors hover:border-[#d5bdd0] hover:bg-[#f9f0f7]"
+                >
+                  <ArrowUpDown className="w-4 h-4 text-[#2E7D52]" />
+                  <span>Set Sequence</span>
+                </button>
+              )}
 
               {activeTab === "add-ons" && (
                 <button
@@ -2657,6 +2709,84 @@ export default function Inventory() {
                     Apply
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Category Sequence Popup */}
+      <AnimatePresence>
+        {sequenceOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-50"
+              onClick={() => !savingSequence && setSequenceOpen(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[85vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 pb-4">
+                <h2 className="text-lg font-bold text-gray-900">Set Category Sequence</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Customers will see your menu categories in this order.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 space-y-2">
+                {sequenceDraft.map((entry, index) => (
+                  <div key={entry.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3">
+                    <span className="w-6 text-sm font-semibold text-[#2E7D52]">{index + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{entry.name}</p>
+                      <p className="text-xs text-gray-500">{entry.itemCount} item{entry.itemCount !== 1 ? "s" : ""}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => moveSequenceEntry(index, -1)}
+                      disabled={index === 0}
+                      className="rounded-full border border-gray-200 p-2 text-gray-700 hover:bg-gray-50 disabled:opacity-30"
+                      aria-label={`Move ${entry.name} up`}
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveSequenceEntry(index, 1)}
+                      disabled={index === sequenceDraft.length - 1}
+                      className="rounded-full border border-gray-200 p-2 text-gray-700 hover:bg-gray-50 disabled:opacity-30"
+                      aria-label={`Move ${entry.name} down`}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-3 p-6 pt-4">
+                <button
+                  onClick={() => setSequenceOpen(false)}
+                  disabled={savingSequence}
+                  className="flex-1 border border-gray-300 text-gray-900 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveSequence}
+                  disabled={savingSequence}
+                  className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white py-3 rounded-lg font-medium hover:bg-[#1B5E3F] transition-colors disabled:opacity-70"
+                >
+                  {savingSequence && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save Sequence
+                </button>
               </div>
             </motion.div>
           </>

@@ -1465,6 +1465,11 @@ export const restaurantAPI = {
       params,
       contextModule: "restaurant",
     }),
+  /** Category sequence shown on the dashboard and the customer menu. */
+  updateCategoryOrder: (categoryOrder = []) =>
+    apiClient.patch("/food/restaurant/menu/category-order", { categoryOrder }, {
+      contextModule: "restaurant",
+    }),
   /** Orders (restaurant dashboard) */
   getOrders: (params = {}) =>
     apiClient.get("/food/restaurant/orders", {

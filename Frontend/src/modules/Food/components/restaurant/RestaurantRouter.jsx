@@ -69,6 +69,14 @@ export default function RestaurantRouter() {
   useTrackRestaurantHistory()
   const isOnboarding = location.pathname.includes("/onboarding")
 
+  // Root-level hook for restaurantTheme.css: the compact POS sizing works by
+  // shrinking the html font-size (rem), so it has to live on <html> and must
+  // not leak into the user/admin apps after leaving the restaurant panel.
+  React.useEffect(() => {
+    document.documentElement.classList.add("rt-panel")
+    return () => document.documentElement.classList.remove("rt-panel")
+  }, [])
+
   React.useEffect(() => {
     const handleAuthFailure = (e) => {
       if (e.detail?.module === "restaurant") {

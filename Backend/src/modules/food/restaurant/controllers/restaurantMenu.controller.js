@@ -2,6 +2,7 @@ import { sendResponse } from '../../../../utils/response.js';
 import {
     getRestaurantMenu,
     updateRestaurantMenu,
+    updateRestaurantCategoryOrder,
     getPublicApprovedRestaurantMenu
 } from '../services/restaurantMenu.service.js';
 
@@ -20,6 +21,16 @@ export const updateMenuController = async (req, res, next) => {
         const restaurantId = req.user?.userId;
         const menu = await updateRestaurantMenu(restaurantId, req.body || {});
         return sendResponse(res, 200, 'Menu updated successfully', { menu });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const updateCategoryOrderController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const menu = await updateRestaurantCategoryOrder(restaurantId, req.body || {});
+        return sendResponse(res, 200, 'Category sequence updated successfully', { menu });
     } catch (error) {
         next(error);
     }

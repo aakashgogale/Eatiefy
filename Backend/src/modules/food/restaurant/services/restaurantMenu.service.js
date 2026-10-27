@@ -3,6 +3,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
+import { FoodRestaurantMenu } from '../models/restaurantMenu.model.js';
 import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import {
   applyOtherPriceToFood,
@@ -182,7 +183,21 @@ const buildMenuFromFoods = async (foods = [], options = {}) => {
         byCategory.get(groupKey).items.push(item);
     }
 
+    // Restaurant's own sequence wins; sections it has not placed follow in the default order.
+    const sequence = new Map(
+        (options.categoryOrder || []).map((key, index) => [String(key).toLowerCase(), index])
+    );
+    const sequenceIndex = (group) => {
+        const byId = group.id ? sequence.get(String(group.id).toLowerCase()) : undefined;
+        if (byId !== undefined) return byId;
+        const byName = sequence.get(String(group.name || '').toLowerCase().trim());
+        return byName !== undefined ? byName : Number.MAX_SAFE_INTEGER;
+    };
+
     const orderedGroups = Array.from(byCategory.values()).sort((a, b) => {
+        const aSeq = sequenceIndex(a);
+        const bSeq = sequenceIndex(b);
+        if (aSeq !== bSeq) return aSeq - bSeq;
         if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
         return String(a.name || '').localeCompare(String(b.name || ''));
     });
@@ -218,13 +233,40 @@ export async function getRestaurantMenu(restaurantId) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
         throw new ValidationError('Invalid restaurant id');
     }
-    const foods = await FoodItem.find({ restaurantId })
-        .sort({ createdAt: -1 })
-        .limit(5000)
-        .select('-oldData -newData +adminPrice')
-        .lean();
+    const [foods, categoryOrder] = await Promise.all([
+        FoodItem.find({ restaurantId })
+            .sort({ createdAt: -1 })
+            .limit(5000)
+            .select('-oldData -newData +adminPrice')
+            .lean(),
+        getCategoryOrder(restaurantId),
+    ]);
     // Restaurant dashboard/edit must see only their own base prices.
-    return buildMenuFromFoods(foods, { applyAdminPricing: false });
+    return buildMenuFromFoods(foods, { applyAdminPricing: false, categoryOrder });
+}
+
+const getCategoryOrder = async (restaurantId) => {
+    const doc = await FoodRestaurantMenu.findOne({ restaurantId }).select('categoryOrder').lean();
+    return Array.isArray(doc?.categoryOrder) ? doc.categoryOrder : [];
+};
+
+export async function updateRestaurantCategoryOrder(restaurantId, body = {}) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+    if (!Array.isArray(body.categoryOrder)) {
+        throw new ValidationError('categoryOrder must be an array of section ids');
+    }
+    const categoryOrder = Array.from(
+        new Set(body.categoryOrder.map((key) => String(key ?? '').trim()).filter(Boolean))
+    ).slice(0, 500);
+
+    await FoodRestaurantMenu.updateOne(
+        { restaurantId },
+        { $set: { categoryOrder }, $setOnInsert: { restaurantId } },
+        { upsert: true }
+    );
+    return getRestaurantMenu(restaurantId);
 }
 
 export async function updateRestaurantMenu(restaurantId, body = {}) {
@@ -283,13 +325,16 @@ export async function getPublicApprovedRestaurantMenu(restaurantIdOrSlug) {
         return null;
     }
     // Dishes in a category the restaurant switched off are not on the customer menu.
-    const foods = await FoodItem.find(await withActiveCategoryFilter({ restaurantId: restaurant._id, approvalStatus: 'approved' }))
-        .sort({ createdAt: -1 })
-        .limit(2000)
-        .select('-oldData -newData +adminPrice')
-        .lean();
+    const [foods, categoryOrder] = await Promise.all([
+        FoodItem.find(await withActiveCategoryFilter({ restaurantId: restaurant._id, approvalStatus: 'approved' }))
+            .sort({ createdAt: -1 })
+            .limit(2000)
+            .select('-oldData -newData +adminPrice')
+            .lean(),
+        getCategoryOrder(restaurant._id),
+    ]);
     // Public / customer menu includes admin markup in selling price.
-    return buildMenuFromFoods(foods, { applyAdminPricing: true });
+    return buildMenuFromFoods(foods, { applyAdminPricing: true, categoryOrder });
 }
 
 export async function syncMenuItemApprovalStatus(restaurantId, itemId, status, rejectionReason = '') {

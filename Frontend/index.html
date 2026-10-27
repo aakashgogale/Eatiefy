@@ -78,7 +78,10 @@
     (function () {
       try {
         var ua = String(navigator.userAgent || '').toLowerCase();
-        var isPos = ua.indexOf('imin') > -1 ||
+        // iMin WebViews report only the model code (e.g. "I23M01" = Swift 2,
+        // "I22T01", "I22D01"), never "imin" or the marketing name.
+        var isPos = /\bi2\d[a-z]\d{2}\b/.test(ua) ||
+                    ua.indexOf('imin') > -1 ||
                     ua.indexOf('swift') > -1 ||
                     ua.indexOf('pos') > -1 ||
                     ua.indexOf('sunmi') > -1 ||

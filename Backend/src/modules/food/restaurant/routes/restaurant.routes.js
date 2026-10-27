@@ -36,7 +36,7 @@ import {
     setCategoryActiveController,
     deleteCategoryController
 } from '../controllers/restaurantCategory.controller.js';
-import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
+import { getMenuController, updateMenuController, updateCategoryOrderController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
 import { getPublicRestaurantAddonsController } from '../controllers/publicAddons.controller.js';
 import * as feedbackExperienceController from '../../admin/controllers/feedbackExperience.controller.js';
 import { getCurrentRestaurantSettings } from '../../admin/controllers/systemConfig.controller.js';
@@ -272,6 +272,10 @@ router.patch('/menu', authMiddleware, requireApprovedRestaurant, async (req, res
     await invalidateCache('under_250:*');
     next();
 }, updateMenuController);
+router.patch('/menu/category-order', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
+    await invalidateCache('restaurant_menu:*');
+    next();
+}, updateCategoryOrderController);
 
 // Feedback (restaurant dashboard)
 router.post('/feedback-experience', authMiddleware, requireApprovedRestaurant, feedbackExperienceController.createFeedbackExperience);

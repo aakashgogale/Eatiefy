@@ -13,6 +13,15 @@ const restaurantMenuSchema = new mongoose.Schema(
         sections: {
             type: [mongoose.Schema.Types.Mixed],
             default: []
+        },
+        /**
+         * Restaurant's own category sequence: menu section ids (category ids, or the
+         * lowercased section name when a section has no category). Sections listed
+         * here come first in this order on the dashboard and the customer menu.
+         */
+        categoryOrder: {
+            type: [String],
+            default: []
         }
     },
     {
