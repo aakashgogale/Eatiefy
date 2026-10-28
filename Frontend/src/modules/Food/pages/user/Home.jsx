@@ -2790,9 +2790,9 @@ export default function Home() {
         result = result.filter((r) => r.pureVegRestaurant === true || r.isVeg === true);
       }
 
-      // Non-Veg filter
+      // Non-Veg filter (pure non-veg only, excludes Mixed restaurants which also have pureVegRestaurant === false)
       if (activeFilters.has("non-veg")) {
-        result = result.filter((r) => r.pureVegRestaurant === false);
+        result = result.filter((r) => r.foodType === "Non-Veg");
       }
 
       // Rating filters
