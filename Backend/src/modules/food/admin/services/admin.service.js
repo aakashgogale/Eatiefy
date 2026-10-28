@@ -6208,6 +6208,10 @@ export async function getRestaurantEarnings(query = {}) {
     // Restaurant filter
     if (query.restaurantId && mongoose.Types.ObjectId.isValid(query.restaurantId)) {
         filter.restaurantId = new mongoose.Types.ObjectId(query.restaurantId);
+    } else {
+        // Exclude orders whose restaurant no longer exists in the DB
+        const existingRestaurantIds = await FoodRestaurant.distinct('_id');
+        filter.restaurantId = { $in: existingRestaurantIds };
     }
 
     // Zone filter
