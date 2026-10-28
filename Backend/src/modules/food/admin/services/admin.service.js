@@ -31,6 +31,7 @@ import { invalidateCommissionRulesCache } from '../../orders/services/riderEarni
 import { invalidateRestaurantCommissionRulesCache } from '../../orders/services/foodTransaction.service.js';
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
+import { getUserWallet, creditWalletBalance, deductWalletBalance } from '../../user/services/userWallet.service.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
 import { FoodTopRestaurant } from '../models/topRestaurant.model.js';
@@ -2047,6 +2048,13 @@ export async function getCustomerById(id) {
         const str = String(s).trim();
         return str.replace(/^`+|`+$/g, '').trim();
     };
+    let walletBalance = 0;
+    try {
+        const wallet = await getUserWallet(id);
+        walletBalance = Number(wallet?.balance) || 0;
+    } catch (err) {
+        logger.warn?.('getCustomerById: failed to load wallet balance', { id, error: err?.message });
+    }
     return {
         id: u._id,
         _id: u._id,
@@ -2064,10 +2072,51 @@ export async function getCustomerById(id) {
         totalOrderAmount: Number(stats.totalOrderAmount || 0),
         totalDeliveredOrders: Number(stats.totalDeliveredOrders || 0),
         totalCancelledOrders: Number(stats.totalCancelledOrders || 0),
+        walletBalance,
         joiningDate: u.createdAt,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt
     };
+}
+
+/**
+ * Admin add/deduct money from a customer's food wallet. Wraps the user
+ * wallet service so the admin side gets its own audit trail (adminId +
+ * reason) in the transaction metadata without touching wallet internals.
+ */
+export async function adjustCustomerWallet(id, { type, amount, reason } = {}, adminUser = null) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid customer id');
+    }
+    const normalizedType = String(type || '').toLowerCase();
+    if (!['credit', 'debit'].includes(normalizedType)) {
+        throw new ValidationError('type must be "credit" or "debit"');
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+        throw new ValidationError('Amount must be greater than 0');
+    }
+
+    const customer = await FoodUser.findById(id).select('name email phone').lean();
+    if (!customer) throw new NotFoundError('Customer not found');
+
+    const metadata = {
+        source: 'admin_adjustment',
+        adminId: adminUser?.id || adminUser?._id || null,
+        adminName: adminUser?.name || adminUser?.email || null,
+        reason: reason ? String(reason).trim() : ''
+    };
+
+    const trimmedReason = reason ? String(reason).trim() : '';
+    const description = trimmedReason
+        ? `Admin ${normalizedType === 'credit' ? 'credit' : 'deduction'} - ${trimmedReason}`
+        : `Admin ${normalizedType === 'credit' ? 'credit' : 'deduction'}`;
+
+    const result = normalizedType === 'credit'
+        ? await creditWalletBalance(id, numericAmount, description, metadata)
+        : await deductWalletBalance(id, numericAmount, description, metadata);
+
+    return { customer, wallet: result.wallet };
 }
 
 export async function updateCustomerStatus(id, isActive) {

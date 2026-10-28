@@ -636,6 +636,13 @@ export const adminAPI = {
     ),
   deleteCustomer: (id) =>
     apiClient.delete(`/food/admin/customers/${String(id)}`, { contextModule: "admin" }),
+  /** type: "credit" | "debit", amount: number, reason?: string */
+  adjustCustomerWallet: (id, { type, amount, reason } = {}) =>
+    apiClient.post(
+      `/food/admin/customers/${String(id)}/wallet/adjust`,
+      { type, amount, reason },
+      { contextModule: "admin" },
+    ),
 
   /** Sub Admins */
   getSubAdmins: (params = {}) =>

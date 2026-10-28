@@ -159,6 +159,27 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
     return { wallet: await getUserWallet(userId) };
 };
 
+export const creditWalletBalance = async (userId, amountInr, description = 'Wallet credit', metadata = {}) => {
+    const amount = Number(amountInr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new ValidationError('Invalid credit amount');
+    }
+
+    const wallet = await ensureWallet(userId);
+    wallet.transactions.unshift({
+        type: 'addition',
+        amount,
+        status: 'Completed',
+        description,
+        metadata: { source: 'wallet_credit', ...(metadata || {}) }
+    });
+
+    wallet.balance = Number(wallet.balance || 0) + amount;
+    await wallet.save();
+
+    return { wallet: await getUserWallet(userId) };
+};
+
 export const deductWalletBalance = async (userId, amountInr, description = 'Order payment', metadata = {}) => {
     const amount = Number(amountInr);
     if (!Number.isFinite(amount) || amount <= 0) {

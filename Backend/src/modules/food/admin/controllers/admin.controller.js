@@ -71,6 +71,24 @@ export async function updateCustomerCodStatus(req, res, next) {
     }
 }
 
+export async function adjustCustomerWallet(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        const { type, amount, reason } = req.body || {};
+        const result = await adminService.adjustCustomerWallet(id, { type, amount, reason }, req.user);
+        res.status(200).json({
+            success: true,
+            message: `Wallet ${type === 'credit' ? 'credited' : 'debited'} successfully`,
+            data: result
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function deleteCustomer(req, res, next) {
     try {
         const { id } = req.params;
