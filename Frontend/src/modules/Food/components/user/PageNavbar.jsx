@@ -7,7 +7,7 @@ import { useCart } from "@food/context/CartContext"
 import { useLocationSelector } from "./UserLayout"
 import { FaLocationDot } from "react-icons/fa6"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import eatiefyLogo from "@food/assets/logo.png"
 import { Avatar, AvatarFallback, AvatarImage } from "@food/components/ui/avatar"
 import { useProfile } from "@food/context/ProfileContext"
 import { isModuleAuthenticated } from "@food/utils/auth"
@@ -1034,10 +1034,18 @@ export default function PageNavbar({
                 src={logoUrl}
                 alt={companyName || "Company Logo"}
                 className="h-9 w-auto sm:h-12 md:h-14 object-contain scale-[1.6] sm:scale-[1.8] origin-left"
-                crossOrigin="anonymous"
-                onError={() => {
+                onError={(e) => {
+                  e.currentTarget.onerror = null
                   setLogoUrl(null)
                 }}
+
+
+
+
+
+
+
+
               />
             ) : companyName ? (
               <span className={`text-lg font-bold ${finalTextColorClass}`}>
@@ -1045,10 +1053,7 @@ export default function PageNavbar({
               </span>
             ) : (
               <img
-                src={quickSpicyLogo}
-                alt="Logo"
-                className="h-9 w-auto sm:h-12 md:h-14 object-contain scale-[1.6] sm:scale-[1.8] origin-left"
-              />
+                src={eatiefyLogo} alt="Logo" className="h-9 w-auto sm:h-12 md:h-14 object-contain scale-[1.6] sm:scale-[1.8] origin-left" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.style.display = 'none'; }} />
             )}
           </Link>
         )}

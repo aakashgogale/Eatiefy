@@ -40,7 +40,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@food/components/ui/popover";
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png";
+import eatiefyLogo from "@food/assets/logo.png";
 import { adminAPI } from "@food/api";
 import { clearModuleAuth } from "@food/utils/auth";
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings";
@@ -324,7 +324,12 @@ export default function AdminNavbar({ onMenuClick }) {
                     loading="lazy"
                     onError={(e) => {
                       // Fallback to default logo if company logo fails to load
-                      e.target.src = quickSpicyLogo;
+                      e.currentTarget.onerror = null;
+                      if (eatiefyLogo) {
+                        e.currentTarget.src = eatiefyLogo;
+                      } else {
+                        e.currentTarget.style.display = 'none';
+                      }
                     }}
                   />
                 ) : (
@@ -333,7 +338,7 @@ export default function AdminNavbar({ onMenuClick }) {
                       {businessSettings.companyName}
                     </span>
                   ) : (
-                    <img src={quickSpicyLogo} alt={businessSettings?.companyName || "Company"} className="w-24 h-10 object-contain" loading="lazy" />
+                    <img src={eatiefyLogo} alt={businessSettings?.companyName || "Company"} className="w-24 h-10 object-contain" loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.style.display = 'none'; }} />
                   )
                 )}
               </div>

@@ -6,7 +6,7 @@ import { getModuleLogoUrl, loadBusinessSettings } from '@food/utils/businessSett
  * It listens for updates, ensuring the logo changes instantly when updated in the admin panel.
  * 
  * @param {string} module - Which app's logo to show: "user", "restaurant", or "delivery"
- * @param {string} fallback - The local fallback image (e.g. quickSpicyLogo) to show if dynamic fails
+ * @param {string} fallback - The local fallback image (e.g. eatiefyLogo) to show if dynamic fails
  * @param {string} className - CSS classes for styling
  * @param {string} alt - Alt text for the image
  */
@@ -43,9 +43,11 @@ export default function DynamicLogo({ module = 'user', fallback, className = '',
             loading="lazy"
             decoding="async"
             onError={(e) => {
-                // If it fails to load the dynamic logo, fallback to the local one
-                if (fallback && e.target.src !== fallback && !e.target.src.includes(fallback)) {
-                    e.target.src = fallback;
+                e.currentTarget.onerror = null;
+                if (fallback) {
+                    e.currentTarget.src = fallback;
+                } else {
+                    e.currentTarget.style.display = 'none';
                 }
             }}
         />

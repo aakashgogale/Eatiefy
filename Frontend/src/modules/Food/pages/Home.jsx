@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import eatiefyLogo from "@food/assets/logo.png"
 
 export default function Home() {
   const navigate = useNavigate()
@@ -45,12 +45,15 @@ export default function Home() {
           <div className="flex justify-center mb-6">
             {logoUrl || companyName ? (
               <img
-                src={logoUrl || quickSpicyLogo}
+                src={logoUrl || eatiefyLogo}
                 alt={companyName || "Logo"}
                 className="h-16 w-auto object-contain"
                 onError={(e) => {
-                  if (e.target.src !== quickSpicyLogo) {
-                    e.target.src = quickSpicyLogo
+                  e.currentTarget.onerror = null
+                  if (eatiefyLogo && e.currentTarget.src !== eatiefyLogo) {
+                    e.currentTarget.src = eatiefyLogo
+                  } else {
+                    e.currentTarget.style.display = 'none'
                   }
                 }}
               />

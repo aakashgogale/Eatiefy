@@ -15,6 +15,7 @@ import { useLocationSelector } from "./UserLayout"
 import { useProfile } from "@food/context/ProfileContext"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { isModuleAuthenticated } from "@food/utils/auth"
+import eatiefyLogo from "@food/assets/logo.png"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -130,7 +131,8 @@ export default function Navbar() {
                 className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain"
                 onError={(e) => {
                   // Hide image if it fails to load
-                  e.target.style.display = 'none'
+                  e.currentTarget.onerror = null
+                  e.currentTarget.style.display = 'none'
                 }}
               />
             ) : companyName ? (
@@ -138,7 +140,7 @@ export default function Navbar() {
                 {companyName}
               </span>
             ) : (
-              <img src={quickSpicyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" />
+              <img src={eatiefyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.style.display = 'none'; }} />
             )}
           </Link>
 

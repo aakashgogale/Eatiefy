@@ -58,7 +58,7 @@ import { filterSidebarMenuByPermissions } from "@food/utils/subAdminPermissions"
 import { getCurrentUser } from "@food/utils/auth"
 import { adminAPI } from "@food/api"
 import { dispatchAdminNotificationsUpdated } from "@food/hooks/useAdminNotifications"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import eatiefyLogo from "@food/assets/logo.png"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -952,13 +952,16 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                 <div className="w-24 h-12 rounded-lg flex items-center justify-center shadow-black/20">
                   {logoUrl ? (
                     <img
-                      src={logoUrl || quickSpicyLogo}
+                      src={logoUrl || eatiefyLogo}
                       alt={companyName || "Company"}
                       className="w-24 h-10 object-contain"
                       loading="lazy"
                       onError={(e) => {
-                        if (e.target.src !== quickSpicyLogo) {
-                          e.target.src = quickSpicyLogo
+                        e.currentTarget.onerror = null
+                        if (eatiefyLogo && e.currentTarget.src !== eatiefyLogo) {
+                          e.currentTarget.src = eatiefyLogo
+                        } else {
+                          e.currentTarget.style.display = 'none'
                         }
                       }}
                     />
@@ -967,7 +970,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                       {companyName}
                     </span>
                   ) : (
-                    <img src={quickSpicyLogo} alt="Company" className="w-24 h-10 object-contain" loading="lazy" />
+                    <img src={eatiefyLogo} alt="Company" className="w-24 h-10 object-contain" loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.style.display = 'none'; }} />
                   )}
                 </div>
               </div>
@@ -977,18 +980,21 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                 <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shadow-lg shadow-black/20 ring-1 ring-white/10">
                   {logoUrl || companyName ? (
                     <img
-                      src={logoUrl || quickSpicyLogo}
+                      src={logoUrl || eatiefyLogo}
                       alt={companyName || "Company"}
                       className="w-10 h-10 object-contain"
                       loading="lazy"
                       onError={(e) => {
-                        if (e.target.src !== quickSpicyLogo) {
-                          e.target.src = quickSpicyLogo
+                        e.currentTarget.onerror = null
+                        if (eatiefyLogo && e.currentTarget.src !== eatiefyLogo) {
+                          e.currentTarget.src = eatiefyLogo
+                        } else {
+                          e.currentTarget.style.display = 'none'
                         }
                       }}
                     />
                   ) : (
-                    <img src={quickSpicyLogo} alt="Company" className="w-10 h-10 object-contain" loading="lazy" />
+                    <img src={eatiefyLogo} alt="Company" className="w-10 h-10 object-contain" loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.style.display = 'none'; }} />
                   )}
                 </div>
               </div>

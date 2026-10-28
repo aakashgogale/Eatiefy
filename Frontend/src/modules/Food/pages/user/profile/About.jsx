@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import eatiefyLogo from "@food/assets/logo.png"
 import api from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -125,12 +125,15 @@ export default function About() {
                 <div className="relative">
                   <div className="relative bg-white dark:bg-gray-800 rounded-full p-4 md:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                     <img
-                      src={logoUrl || quickSpicyLogo}
+                      src={logoUrl || eatiefyLogo}
                       alt={`${aboutData.appName} Logo`}
                       className="h-16 w-16 md:h-20 md:w-20 object-contain rounded-full"
                       onError={(e) => {
-                        if (e.target.src !== quickSpicyLogo) {
-                          e.target.src = quickSpicyLogo
+                        e.currentTarget.onerror = null
+                        if (eatiefyLogo && e.currentTarget.src !== eatiefyLogo) {
+                          e.currentTarget.src = eatiefyLogo
+                        } else {
+                          e.currentTarget.style.display = 'none'
                         }
                       }}
                     />

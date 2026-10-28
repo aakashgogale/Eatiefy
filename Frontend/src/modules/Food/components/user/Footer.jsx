@@ -4,12 +4,12 @@ import { Facebook, Twitter, Instagram, Mail, Phone, MapPin, Heart } from "lucide
 import { useState, useEffect } from "react"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import eatiefyLogo from "@food/assets/logo.png"
 
 export default function Footer() {
   const companyName = useCompanyName()
   const currentYear = new Date().getFullYear()
-  const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
+  const [logoUrl, setLogoUrl] = useState(eatiefyLogo)
 
   // Load business settings logo
   useEffect(() => {
@@ -83,13 +83,16 @@ export default function Footer() {
             >
               <div className="flex items-center gap-2 mb-4">
                 <img
-                  src={logoUrl || quickSpicyLogo}
+                  src={logoUrl || eatiefyLogo}
                   alt="Company Logo"
                   className="h-10 w-10 rounded-full object-cover"
-                  crossOrigin="anonymous"
+
                   onError={(e) => {
-                    if (e.target.src !== quickSpicyLogo) {
-                      e.target.src = quickSpicyLogo
+                    e.currentTarget.onerror = null
+                    if (eatiefyLogo && e.currentTarget.src !== eatiefyLogo) {
+                      e.currentTarget.src = eatiefyLogo
+                    } else {
+                      e.currentTarget.style.display = 'none'
                     }
                   }}
                 />
