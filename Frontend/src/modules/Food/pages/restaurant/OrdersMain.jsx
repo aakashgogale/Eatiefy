@@ -1579,6 +1579,10 @@ function OrdersMainInner() {
   const [takeawayOtpInput, setTakeawayOtpInput] = useState("");
   const [isSubmittingVerifyTakeaway, setIsSubmittingVerifyTakeaway] = useState(false);
   const otpInputRef = useRef(null);
+  // Tracks how much the iOS/Android software keyboard is covering the
+  // viewport so the OTP sheet can lift itself clear of it instead of
+  // getting clipped/overlapped by the keyboard + accessory bar.
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [isAcceptingOrder, setIsAcceptingOrder] = useState(false);
   const shownOrdersRef = useRef(new Set()); // Track orders already shown in popup
   const acceptSliderRef = useRef(null);
@@ -2712,6 +2716,33 @@ function OrdersMainInner() {
     setCancelReason("");
     setCancelOtherText("");
   };
+
+  // Keep the OTP sheet above the on-screen keyboard: iOS/Android resize the
+  // visual viewport (not the layout viewport) when the keyboard opens, so a
+  // vertically-centered fixed modal can end up partly hidden behind it. We
+  // measure that gap and feed it back in as padding so the sheet docks just
+  // above the keyboard instead of being cut off / overlapped.
+  useEffect(() => {
+    if (!showVerifyTakeawayPopup) {
+      setKeyboardInset(0);
+      return;
+    }
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return;
+
+    const updateInset = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(inset);
+    };
+
+    updateInset();
+    vv.addEventListener("resize", updateInset);
+    vv.addEventListener("scroll", updateInset);
+    return () => {
+      vv.removeEventListener("resize", updateInset);
+      vv.removeEventListener("scroll", updateInset);
+    };
+  }, [showVerifyTakeawayPopup]);
 
   // Handle takeaway verification modal opening
   const handleVerifyTakeawayClick = (order) => {
@@ -4223,10 +4254,11 @@ function OrdersMainInner() {
       {showVerifyTakeawayPopup && verifyingOrder && (
         <>
           <div
-            className="fixed inset-0 z-[110] bg-black/70 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[110] bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4"
+            style={{ paddingBottom: keyboardInset }}
             onClick={handleVerifyTakeawayClose}>
             <div
-              className="w-[95%] max-w-sm bg-white dark:bg-[#242424] rounded-3xl shadow-2xl overflow-hidden"
+              className="w-full sm:w-[95%] max-w-sm bg-white dark:bg-[#242424] rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-y-auto max-h-[88vh]"
               onClick={(e) => e.stopPropagation()}>
 
               {/* Gradient Header */}
@@ -4295,7 +4327,9 @@ function OrdersMainInner() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 px-5 pt-3 pb-6">
+              <div
+                className="flex gap-3 px-5 pt-3 pb-6"
+                style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
                 <button
                   type="button"
                   onClick={handleVerifyTakeawayClose}

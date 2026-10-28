@@ -171,8 +171,9 @@ export function useOrdersManagement(orders, statusKey, title, options = {}) {
     }
 
     if (filters.deliveryType) {
+      const wantedDeliveryType = filters.deliveryType.toLowerCase().replace(/_/g, " ")
       result = result.filter(
-        (order) => String(order.deliveryType || "").toLowerCase() === filters.deliveryType.toLowerCase(),
+        (order) => String(order.deliveryType || "").toLowerCase().replace(/_/g, " ") === wantedDeliveryType,
       )
     }
 
