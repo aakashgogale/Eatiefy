@@ -2234,6 +2234,12 @@ export async function listOrdersAdmin(query) {
     typeof query.minAmount === "string" ? query.minAmount.trim() : "";
   const maxAmountRaw =
     typeof query.maxAmount === "string" ? query.maxAmount.trim() : "";
+  const orderTypeRaw =
+    typeof query.orderType === "string" ? query.orderType.trim().toLowerCase() : "";
+
+  if (orderTypeRaw && ["delivery", "takeaway", "dining"].includes(orderTypeRaw)) {
+    filter.orderType = orderTypeRaw;
+  }
 
   if (rawStatus && rawStatus !== "all") {
     switch (rawStatus) {

@@ -49,8 +49,17 @@ const mapOrderStatus = (order) => {
     return "Delivery Boy Reached Pickup"
   }
 
-  // Order ID Accepted
-  if (deliveryState?.status === 'order_confirmed' || deliveryState?.currentPhase === 'en_route_to_delivery' || deliveryState?.orderIdConfirmedAt) {
+  // Order ID Accepted — must also match on orderStatus (picked_up / out_for_delivery),
+  // same as the backend's detectDeliveryCounts aggregation. Checking this before the
+  // "Delivery Boy Assigned" fallback below keeps the row's status text in sync with
+  // which stat card the backend actually counted this order under.
+  if (
+    deliveryState?.status === 'order_confirmed' ||
+    deliveryState?.currentPhase === 'en_route_to_delivery' ||
+    deliveryState?.orderIdConfirmedAt ||
+    status === 'picked_up' ||
+    status === 'out_for_delivery'
+  ) {
     return "Order ID Accepted"
   }
 
@@ -67,8 +76,6 @@ const mapOrderStatus = (order) => {
     'preparing': 'Restaurant Accepted',
     'ready_for_pickup': 'Restaurant Accepted',
     'ready': 'Restaurant Accepted',
-    'picked_up': 'Order ID Accepted',
-    'out_for_delivery': 'Order ID Accepted',
   }
 
   return statusMap[status] || 'Ordered'
@@ -324,6 +331,11 @@ export default function OrderDetectDelivery() {
         limit: pageSize,
         zoneId: zoneId || undefined,
         search: debouncedSearch || undefined,
+        // This dashboard tracks the delivery-partner journey (assigned → reached
+        // pickup → order ID accepted → reached drop). Takeaway/dining orders never
+        // go through that journey, so without this they padded "Ordered" /
+        // "Restaurant Accepted" and skewed every card's count.
+        orderType: "delivery",
         // Dashboard counts — only when search/zone changes or first load (keeps page flips fast)
         ...(withCounts ? { includeDetectDeliveryCounts: 1 } : {}),
       }
