@@ -38,16 +38,6 @@ import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
 import LocationSearchInput from "@food/components/restaurant/LocationSearchInput"
 import { dispatchRestaurantLocationUpdated, buildRestaurantLocationUpdatePayload } from "@food/utils/restaurantLocation"
-import TimeField from "@food/components/restaurant/TimeField"
-
-const timeStringToMinutes = (value = "") => {
-  const raw = String(value || "").trim()
-  if (!/^\d{2}:\d{2}$/.test(raw)) return null
-  const [hours, minutes] = raw.split(":").map(Number)
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
-  return hours * 60 + minutes
-}
 
 const PAN_NUMBER_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 const GST_NUMBER_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/
@@ -1190,47 +1180,9 @@ export default function EditOwner() {
               {/* Operational details */}
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                 <h3 className="text-sm font-bold text-gray-900 border-b pb-2">Operation & Timings</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <TimeField
-                    label="Opening Time"
-                    value={formData.openingTime}
-                    onChange={(nextOpening) => {
-                      if (!nextOpening) {
-                        handleInputChange("openingTime", "")
-                        return
-                      }
-                      const closingMinutes = timeStringToMinutes(formData.closingTime)
-                      const openingMinutes = timeStringToMinutes(nextOpening)
-                      if (openingMinutes !== null && closingMinutes !== null) {
-                        if (openingMinutes === closingMinutes) {
-                          toast.error("Opening time and closing time cannot be same")
-                          return
-                        }
-                      }
-                      handleInputChange("openingTime", nextOpening)
-                    }}
-                  />
-
-                  <TimeField
-                    label="Closing Time"
-                    value={formData.closingTime}
-                    onChange={(nextClosing) => {
-                      if (!nextClosing) {
-                        handleInputChange("closingTime", "")
-                        return
-                      }
-                      const openingMinutes = timeStringToMinutes(formData.openingTime)
-                      const closingMinutes = timeStringToMinutes(nextClosing)
-                      if (openingMinutes !== null && closingMinutes !== null) {
-                        if (openingMinutes === closingMinutes) {
-                          toast.error("Opening time and closing time cannot be same")
-                          return
-                        }
-                      }
-                      handleInputChange("closingTime", nextClosing)
-                    }}
-                  />
-                </div>
+                <p className="text-xs text-gray-500 -mt-2">
+                  Opening and closing time can be changed from Outlet timings.
+                </p>
 
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-2 uppercase tracking-wide flex items-center gap-1">
