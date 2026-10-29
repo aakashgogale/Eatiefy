@@ -719,8 +719,8 @@ export default function EditOwner() {
         profileImage: profRes?.url || "",
 
         restaurantName: formData.restaurantName.trim(),
-        foodType: formData.foodType || (formData.pureVegRestaurant ? "Veg" : "Mixed"),
-        pureVegRestaurant: formData.foodType === "Veg" || formData.pureVegRestaurant === true,
+        foodType: formData.foodType,
+        pureVegRestaurant: formData.foodType === "Veg",
         pureVeganRestaurant: false,
         primaryContactNumber: formData.primaryContactNumber.trim(),
         zoneId: formData.zoneId,
@@ -973,28 +973,27 @@ export default function EditOwner() {
 
                 <div className="pt-2 border-t border-gray-100">
                   <label className="text-xs font-bold text-gray-700 block mb-2 uppercase tracking-wide">
-                    Menu Type
+                    Restaurant diet type?
                   </label>
-                  <p className="text-[11px] text-gray-500 mb-3">
-                    This helps users filter restaurants by dietary preference.
-                  </p>
-                  <div className="flex flex-wrap gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => {
+                        handleInputChange("foodType", "Veg")
                         handleInputChange("pureVegRestaurant", true)
                         handleInputChange("pureVeganRestaurant", false)
                       }}
-                      className={`flex-1 min-w-[120px] px-3 py-2.5 text-xs font-semibold rounded-full border transition-all ${
-                        formData.pureVegRestaurant === true && formData.pureVeganRestaurant !== true
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                        formData.foodType === "Veg"
                           ? "bg-green-600 text-white border-green-600 shadow-sm"
                           : "bg-white text-gray-700 border-gray-200 hover:border-green-400"
                       }`}
                     >
-                      Yes, Pure Veg
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-500 border border-white" />
+                      Veg
                     </button>
                     {/* DISABLED: "Pure Vegan" is not a selectable restaurant menu type —
-                        only Pure Veg and Mixed Menu are active. Kept, not deleted.
+                        only Veg, Non-Veg and Mixed are active. Kept, not deleted.
                     <button
                       type="button"
                       onClick={() => {
@@ -1013,18 +1012,43 @@ export default function EditOwner() {
                     <button
                       type="button"
                       onClick={() => {
+                        handleInputChange("foodType", "Non-Veg")
                         handleInputChange("pureVegRestaurant", false)
                         handleInputChange("pureVeganRestaurant", false)
                       }}
-                      className={`flex-1 min-w-[120px] px-3 py-2.5 text-xs font-semibold rounded-full border transition-all ${
-                        formData.pureVegRestaurant === false
-                          ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white border-transparent shadow-sm"
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                        formData.foodType === "Non-Veg"
+                          ? "bg-red-600 text-white border-red-600 shadow-sm"
+                          : "bg-white text-gray-700 border-gray-200 hover:border-red-400"
+                      }`}
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500 border border-white" />
+                      Non-Veg
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInputChange("foodType", "Mixed")
+                        handleInputChange("pureVegRestaurant", false)
+                        handleInputChange("pureVeganRestaurant", false)
+                      }}
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                        formData.foodType === "Mixed"
+                          ? "bg-[#2E7D52] text-white border-[#2E7D52] shadow-sm"
                           : "bg-white text-gray-700 border-gray-200 hover:border-[#2E7D52]"
                       }`}
                     >
-                      No, Mixed Menu
+                      <div className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-white" />
+                      Mixed (Both)
                     </button>
                   </div>
+                  <p className="text-[11px] text-gray-500 mt-1.5">
+                    {formData.foodType === "Veg"
+                      ? "Veg: Serves only vegetarian dishes."
+                      : formData.foodType === "Non-Veg"
+                        ? "Non-Veg: Serves only non-vegetarian dishes."
+                        : "Mixed: Serves both vegetarian and non-vegetarian dishes."}
+                  </p>
                 </div>
 
                 <div>
