@@ -184,7 +184,7 @@ export const filterDishesForVegMode = (
  * - vegMode OFF → all restaurants
  * - option "all" → all restaurants
  * - option "pure-veg" → Veg restaurants and mixed restaurants serving veg dishes
- * - option "non-veg" → Non-Veg and mixed restaurants serving non-veg dishes
+ * - option "non-veg" → pure Non-Veg restaurants only (Mixed restaurants excluded)
  */
 export const matchesVegRestaurantFilter = (
   restaurant,
@@ -202,8 +202,9 @@ export const matchesVegRestaurantFilter = (
   }
 
   if (option === "non-veg") {
-    if (ft === "Veg" || restaurant?.pureVegRestaurant === true || restaurant?.isPureVeg === true) return false
-    return true
+    // Pure non-veg only: excludes Mixed restaurants, which also report
+    // pureVegRestaurant === false but serve veg dishes too.
+    return ft === "Non-Veg"
   }
 
   return true

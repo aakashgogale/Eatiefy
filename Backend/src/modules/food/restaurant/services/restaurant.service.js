@@ -1777,11 +1777,12 @@ export const listApprovedRestaurants = async (query = {}) => {
                 ]
             }];
         } else if (ft === 'non-veg' || ft === 'non veg') {
+            // Pure non-veg only: excludes Mixed restaurants, which also have
+            // pureVegRestaurant === false but serve veg dishes too.
             filter.$and = [...(filter.$and || []), {
                 $or: [
                     { foodType: 'Non-Veg' },
-                    { foodType: 'Mixed' },
-                    { pureVegRestaurant: false }
+                    { $and: [{ foodType: { $exists: false } }, { pureVegRestaurant: false }] }
                 ]
             }];
         } else if (ft === 'mixed') {
@@ -1801,11 +1802,12 @@ export const listApprovedRestaurants = async (query = {}) => {
             ]
         }];
     } else if (query.vegModeOption === 'non-veg' || query.isNonVeg === 'true') {
+        // Pure non-veg only: excludes Mixed restaurants, which also have
+        // pureVegRestaurant === false but serve veg dishes too.
         filter.$and = [...(filter.$and || []), {
             $or: [
                 { foodType: 'Non-Veg' },
-                { foodType: 'Mixed' },
-                { pureVegRestaurant: false }
+                { $and: [{ foodType: { $exists: false } }, { pureVegRestaurant: false }] }
             ]
         }];
     }
@@ -1876,6 +1878,7 @@ export const listApprovedRestaurants = async (query = {}) => {
         totalRatings: 1,
         isAcceptingOrders: 1,
         status: 1,
+        foodType: 1,
         pureVegRestaurant: 1,
         pureVeganRestaurant: 1,
         diningSettings: 1,
