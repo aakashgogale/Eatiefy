@@ -17,7 +17,6 @@ import {
   X,
   ImageIcon,
   Check,
-  Clock,
   Calendar as CalendarIcon,
   Sparkles,
   MapPin,
@@ -39,9 +38,7 @@ import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
 import LocationSearchInput from "@food/components/restaurant/LocationSearchInput"
 import { dispatchRestaurantLocationUpdated, buildRestaurantLocationUpdatePayload } from "@food/utils/restaurantLocation"
-import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
-import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
+import TimeField from "@food/components/restaurant/TimeField"
 
 const timeStringToMinutes = (value = "") => {
   const raw = String(value || "").trim()
@@ -50,67 +47,6 @@ const timeStringToMinutes = (value = "") => {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
   return hours * 60 + minutes
-}
-
-const normalizeTimeValue = (value) => {
-  if (!value) return ""
-  const raw = String(value).trim()
-  if (!raw) return ""
-
-  const to24Hour = (h, m, period) => {
-    let hours = Number(h)
-    const minutes = Number(m)
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return ""
-    if (minutes < 0 || minutes > 59) return ""
-    const p = String(period || "").toUpperCase()
-    if (p === "AM") {
-      if (hours === 12) hours = 0
-    } else if (p === "PM") {
-      if (hours !== 12) hours += 12
-    }
-    if (hours < 0 || hours > 23) return ""
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
-  }
-
-  if (/^\d{2}:\d{2}$/.test(raw)) {
-    const [h, m] = raw.split(":").map(Number)
-    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) {
-      return ""
-    }
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-  }
-
-  if (/^\d{1}:\d{2}$/.test(raw)) {
-    const [h, m] = raw.split(":")
-    return to24Hour(h, m, "")
-  }
-
-  const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/)
-  if (ampm) {
-    return to24Hour(ampm[1], ampm[2], ampm[3])
-  }
-
-  const parsed = new Date(raw)
-  if (!Number.isNaN(parsed.getTime())) {
-    return timeToString(parsed)
-  }
-  return ""
-}
-
-const stringToTime = (timeString) => {
-  const normalized = normalizeTimeValue(timeString)
-  if (!normalized || !normalized.includes(":")) {
-    return null
-  }
-  const [hours, minutes] = normalized.split(":").map(Number)
-  return new Date(2000, 0, 1, hours || 0, minutes || 0)
-}
-
-const timeToString = (date) => {
-  if (!date) return ""
-  const hours = date.getHours().toString().padStart(2, "0")
-  const minutes = date.getMinutes().toString().padStart(2, "0")
-  return `${hours}:${minutes}`
 }
 
 const PAN_NUMBER_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
@@ -1254,101 +1190,47 @@ export default function EditOwner() {
               {/* Operational details */}
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                 <h3 className="text-sm font-bold text-gray-900 border-b pb-2">Operation & Timings</h3>
-                <LocalizationProvider dateAdapter={AdapterDateFns}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Clock className="w-4 h-4 text-gray-800" />
-                        <span className="text-xs font-medium text-gray-900">Opening Time</span>
-                      </div>
-                      <MobileTimePicker
-                        ampm={true}
-                        value={stringToTime(formData.openingTime)}
-                        onChange={(newValue) => {
-                          if (!newValue) {
-                            handleInputChange("openingTime", "")
-                            return
-                          }
-                          const nextOpening = timeToString(newValue)
-                          const closingMinutes = timeStringToMinutes(formData.closingTime)
-                          const openingMinutes = timeStringToMinutes(nextOpening)
-                          if (openingMinutes !== null && closingMinutes !== null) {
-                            if (openingMinutes === closingMinutes) {
-                              toast.error("Opening time and closing time cannot be same")
-                              return
-                            }
-                          }
-                          handleInputChange("openingTime", nextOpening)
-                        }}
-                        slotProps={{
-                          textField: {
-                            variant: "outlined",
-                            size: "small",
-                            placeholder: "Select time",
-                            sx: {
-                              "& .MuiOutlinedInput-root": {
-                                height: "36px",
-                                fontSize: "12px",
-                                backgroundColor: "white",
-                                "& fieldset": { borderColor: "#e5e7eb" },
-                                "&:hover fieldset": { borderColor: "#d1d5db" },
-                                "&.Mui-focused fieldset": { borderColor: "#000" },
-                              },
-                              "& .MuiInputBase-input": { padding: "8px 12px", fontSize: "12px" },
-                            },
-                          },
-                        }}
-                        format="hh:mm a"
-                      />
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <TimeField
+                    label="Opening Time"
+                    value={formData.openingTime}
+                    onChange={(nextOpening) => {
+                      if (!nextOpening) {
+                        handleInputChange("openingTime", "")
+                        return
+                      }
+                      const closingMinutes = timeStringToMinutes(formData.closingTime)
+                      const openingMinutes = timeStringToMinutes(nextOpening)
+                      if (openingMinutes !== null && closingMinutes !== null) {
+                        if (openingMinutes === closingMinutes) {
+                          toast.error("Opening time and closing time cannot be same")
+                          return
+                        }
+                      }
+                      handleInputChange("openingTime", nextOpening)
+                    }}
+                  />
 
-                    <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Clock className="w-4 h-4 text-gray-800" />
-                        <span className="text-xs font-medium text-gray-900">Closing Time</span>
-                      </div>
-                      <MobileTimePicker
-                        ampm={true}
-                        value={stringToTime(formData.closingTime)}
-                        onChange={(newValue) => {
-                          if (!newValue) {
-                            handleInputChange("closingTime", "")
-                            return
-                          }
-                          const nextClosing = timeToString(newValue)
-                          const openingMinutes = timeStringToMinutes(formData.openingTime)
-                          const closingMinutes = timeStringToMinutes(nextClosing)
-                          if (openingMinutes !== null && closingMinutes !== null) {
-                            if (openingMinutes === closingMinutes) {
-                              toast.error("Opening time and closing time cannot be same")
-                              return
-                            }
-                          }
-                          handleInputChange("closingTime", nextClosing)
-                        }}
-                        slotProps={{
-                          textField: {
-                            variant: "outlined",
-                            size: "small",
-                            placeholder: "Select time",
-                            sx: {
-                              "& .MuiOutlinedInput-root": {
-                                height: "36px",
-                                fontSize: "12px",
-                                backgroundColor: "white",
-                                "& fieldset": { borderColor: "#e5e7eb" },
-                                "&:hover fieldset": { borderColor: "#d1d5db" },
-                                "&.Mui-focused fieldset": { borderColor: "#000" },
-                              },
-                              "& .MuiInputBase-input": { padding: "8px 12px", fontSize: "12px" },
-                            },
-                          },
-                        }}
-                        format="hh:mm a"
-                      />
-                    </div>
-                  </div>
-                </LocalizationProvider>
+                  <TimeField
+                    label="Closing Time"
+                    value={formData.closingTime}
+                    onChange={(nextClosing) => {
+                      if (!nextClosing) {
+                        handleInputChange("closingTime", "")
+                        return
+                      }
+                      const openingMinutes = timeStringToMinutes(formData.openingTime)
+                      const closingMinutes = timeStringToMinutes(nextClosing)
+                      if (openingMinutes !== null && closingMinutes !== null) {
+                        if (openingMinutes === closingMinutes) {
+                          toast.error("Opening time and closing time cannot be same")
+                          return
+                        }
+                      }
+                      handleInputChange("closingTime", nextClosing)
+                    }}
+                  />
+                </div>
 
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-2 uppercase tracking-wide flex items-center gap-1">
